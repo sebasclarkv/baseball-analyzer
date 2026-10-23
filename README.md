@@ -10,7 +10,7 @@ Funciona en la web, iPhone y Android desde una sola interfaz adaptable. El servi
 
 ## En el diamante
 
-- Búsqueda de jugadores MLB por nombre, apellido y teclado accesible.
+- Búsqueda de jugadores MLB por nombre y apellido en ese orden (por ejemplo, `Aaron Judge`) o por apellido; selecciona la coincidencia correcta en la lista.
 - Historial de hasta tres años separado de la forma reciente, tendencias por juego y detalle de apariciones al plato.
 - Matchup opcional contra un pitcher rival, con split por mano y tasas permitidas de hits, HR, BB, K y outs.
 - Proyección de hits, HR, BB, ponches y apariciones para el siguiente juego.
@@ -63,7 +63,7 @@ La instalación no incluye un backend en el teléfono: el servidor Python debe s
 
 ## Uso del analizador
 
-1. Busca al bateador y selecciona una coincidencia para fijar su identidad MLB.
+1. Escribe nombre y apellido en ese orden (por ejemplo, `Aaron Judge`), o busca solo por apellido. Selecciona al bateador correcto de la lista; escribir el nombre sin elegir una coincidencia no inicia el análisis.
 2. Opcionalmente selecciona el pitcher rival confirmado o probable; sin él se calcula el perfil del bateador.
 3. Elige cuántos juegos usar para la forma reciente y un historial de hasta tres años.
 4. Inicia el análisis. La consulta inicial puede tardar mientras Statcast descarga los datos del bateador y, si elegiste un rival, los del pitcher. pybaseball conserva la descarga en caché local.
