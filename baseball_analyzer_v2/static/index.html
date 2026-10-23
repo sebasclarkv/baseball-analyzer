@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#07111f">
+    <meta name="description" content="Analiza tendencias de bateo y proyecciones explicables con datos públicos de MLB Statcast.">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Diamond IQ">
+    <title>Baseball Analyzer 2.0 · Diamond IQ</title>
+    <link rel="manifest" href="/static/manifest.webmanifest">
+    <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+    <link rel="stylesheet" href="/static/styles.css">
+    <script src="/static/app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Saltar al análisis</a>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Baseball Analyzer, inicio">
+        <span class="brand-mark" aria-hidden="true"><span></span></span>
+        <span class="brand-copy">
+          <strong>DIAMOND<span>IQ</span></strong>
+          <small>BASEBALL ANALYZER</small>
+        </span>
+      </a>
+      <div class="topbar-meta">
+        <span class="live-dot"></span>
+        <span>MLB · STATCAST</span>
+        <span class="version-pill">V2.0</span>
+      </div>
+      <button id="install-app" class="install-button" type="button">Instalar app</button>
+    </header>
+
+    <main id="main" class="page-shell">
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow"><span class="eyebrow-line"></span> INTELIGENCIA DE BÉISBOL</p>
+          <h1>Lee el juego.<br><span>Proyecta el siguiente.</span></h1>
+          <p class="hero-description">Historial de varias temporadas, forma reciente y matchup bateador–pitcher para proyectar el siguiente juego con Statcast.</p>
+        </div>
+        <div class="hero-stamp" aria-hidden="true">
+          <span>01</span>
+          <i></i>
+          <span>ANALYTICS</span>
+        </div>
+      </section>
+
+      <section class="search-panel" aria-labelledby="search-title">
+        <div class="search-heading">
+          <div>
+            <p class="section-kicker">NUEVO ANÁLISIS</p>
+            <h2 id="search-title">Elige un bateador</h2>
+          </div>
+          <span class="search-hint">Busca nombre y apellido</span>
+        </div>
+        <form id="search-form" autocomplete="off">
+          <div class="form-field player-field">
+            <label for="player-query">Bateador MLB</label>
+            <div class="input-wrap">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 5 5"></path></svg>
+              <input id="player-query" name="player" type="search" minlength="2" placeholder="Ej. Aaron Judge" role="combobox" aria-label="Buscar jugador" aria-autocomplete="list" aria-expanded="false" aria-controls="player-suggestions" required>
+            </div>
+            <div id="player-suggestions" class="suggestions" role="listbox" aria-label="Jugadores encontrados" hidden></div>
+          </div>
+          <div class="form-field pitcher-field">
+            <label for="pitcher-query">Pitcher rival · opcional</label>
+            <div class="input-wrap">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V9l8-5 8 5v11M8 20v-6h8v6M3 20h18"></path><circle cx="12" cy="10" r="1.4"></circle></svg>
+              <input id="pitcher-query" name="pitcher" type="search" minlength="2" placeholder="Busca el abridor rival" role="combobox" aria-label="Buscar pitcher rival" aria-autocomplete="list" aria-expanded="false" aria-controls="pitcher-suggestions">
+            </div>
+            <div id="pitcher-suggestions" class="suggestions" role="listbox" aria-label="Pitchers encontrados" hidden></div>
+          </div>
+          <div class="form-field">
+            <label for="games-select">Juegos para estimar forma</label>
+            <select id="games-select" name="games">
+              <option value="10">10 juegos</option>
+              <option value="20">20 juegos</option>
+              <option value="40" selected>40 juegos</option>
+              <option value="60">60 juegos</option>
+              <option value="100">100 juegos</option>
+              <option value="150">150 juegos</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label for="window-select">Historial analizado</label>
+            <select id="window-select" name="lookback">
+              <option value="90">90 días</option>
+              <option value="180">180 días</option>
+              <option value="365">1 año</option>
+              <option value="730" selected>2 años</option>
+              <option value="1095">3 años</option>
+            </select>
+          </div>
+          <button id="analyze-button" class="primary-button" type="submit" disabled>
+            <span>Analizar bateador</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
+          </button>
+        </form>
+        <p id="form-message" class="form-message" aria-live="polite"></p>
+      </section>
+
+      <div class="saved-reports-wrap" id="saved-reports-wrap" hidden>
+        <p class="section-kicker">REPORTES GUARDADOS EN ESTE DISPOSITIVO</p>
+        <div id="saved-reports" class="saved-reports" aria-label="Reportes guardados"></div>
+        <button id="clear-saved-reports" class="saved-clear-button" type="button">Borrar historial local</button>
+      </div>
+
+      <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+
+      <section id="empty-state" class="empty-state">
+        <div class="empty-diamond" aria-hidden="true"><span></span></div>
+        <p class="section-kicker">TU SIGUIENTE VENTAJA</p>
+        <h2>Los números cuentan una historia.</h2>
+        <p>Compara hasta tres temporadas con la forma actual, la calidad de contacto y, si conoces al abridor rival, las señales del matchup.</p>
+        <div class="empty-foot"><span>01</span> BÚSQUEDA <i></i><span>02</span> TENDENCIA <i></i><span>03</span> PROYECCIÓN</div>
+      </section>
+
+      <section id="dashboard" class="dashboard" hidden aria-live="polite">
+        <div class="player-heading">
+          <div>
+            <p class="section-kicker">PERFIL DE BATEO <span id="sample-confidence" class="confidence-pill"></span></p>
+            <h2 id="player-name">—</h2>
+            <p id="player-subtitle" class="player-subtitle">Statcast · —</p>
+          </div>
+          <button id="copy-report" class="quiet-button" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"></path></svg>
+            <span>Copiar reporte</span>
+          </button>
+        </div>
+
+        <section class="projection-panel" aria-labelledby="projection-title">
+          <div class="projection-main">
+            <p class="section-kicker">PROYECCIÓN · PRÓXIMO JUEGO</p>
+            <h3 id="projection-title"><span id="projected-hits">—</span><small> hits esperados</small></h3>
+            <p><span id="projected-range">—</span> rango estimado · <span id="projected-pa">—</span> apariciones</p>
+          </div>
+          <div class="projection-side">
+            <span class="projection-orbit" aria-hidden="true"><i></i><b></b></span>
+            <div><strong id="hit-game-chance">—</strong><small>prob. de 1+ hit</small></div>
+            <div><strong id="hr-game-chance">—</strong><small>prob. de HR</small></div>
+          </div>
+          <div class="projection-foot">
+            <span class="projection-marker"></span>
+            <span>HISTORIAL · FORMA · CONTEXTO DEL MATCHUP</span>
+            <span id="data-window">—</span>
+          </div>
+        </section>
+
+        <div class="metric-grid">
+          <article class="metric-card metric-primary">
+            <div class="metric-top"><span>HIT / PA · xBA + MATCHUP</span><span class="metric-icon">H</span></div>
+            <strong id="hit-rate">—</strong>
+            <p id="hit-count">— hits observados · — PA</p>
+            <div class="metric-track"><span id="hit-track"></span></div>
+          </article>
+          <article class="metric-card">
+            <div class="metric-top"><span>HOME RUN / APARICIÓN</span><span class="metric-icon icon-violet">HR</span></div>
+            <strong id="hr-rate">—</strong>
+            <p id="hr-count">— HR en la muestra</p>
+            <div class="metric-track violet-track"><span id="hr-track"></span></div>
+          </article>
+          <article class="metric-card">
+            <div class="metric-top"><span>EV. DE SALIDA</span><span class="metric-icon icon-blue">EV</span></div>
+            <strong id="exit-velocity">—</strong>
+            <p>promedio · mph</p>
+            <div class="metric-track blue-track"><span id="ev-track"></span></div>
+          </article>
+          <article class="metric-card">
+            <div class="metric-top"><span>CONTACTO DURO</span><span class="metric-icon icon-gold">95+</span></div>
+            <strong id="hard-hit-rate">—</strong>
+            <p id="batted-ball-count">— bolas bateadas</p>
+            <div class="metric-track gold-track"><span id="hard-hit-track"></span></div>
+          </article>
+        </div>
+
+        <div class="analysis-grid">
+          <article class="content-card trend-card">
+            <div class="card-heading">
+              <div><p class="section-kicker">FORMA RECIENTE</p><h3>Producción por juego</h3></div>
+              <span class="chart-key"><i></i> H / PA</span>
+            </div>
+            <svg id="trend-chart" class="trend-chart" viewBox="0 0 760 260" role="img" aria-label="Tendencia de hits por juego"></svg>
+            <div id="trend-empty" class="trend-empty" hidden>No hay suficientes juegos para mostrar una tendencia.</div>
+            <div class="chart-footer"><span>JUEGO MÁS ANTIGUO</span><span>ÚLTIMOS <b id="trend-game-count">—</b> JUEGOS</span><span>JUEGO MÁS RECIENTE</span></div>
+          </article>
+
+          <article class="content-card profile-card">
+            <div class="card-heading">
+              <div><p class="section-kicker">RESULTADOS POR PA</p><h3>Perfil de bateo</h3></div>
+              <span class="card-unit">%</span>
+            </div>
+            <div class="rate-list">
+              <div class="rate-row"><div><span>Hits</span><strong id="profile-hits">—</strong></div><span class="rate-track"><i id="profile-hits-bar"></i></span></div>
+              <div class="rate-row"><div><span>HR</span><strong id="profile-hr">—</strong></div><span class="rate-track violet-track"><i id="profile-hr-bar"></i></span></div>
+              <div class="rate-row"><div><span>BB</span><strong id="profile-walks">—</strong></div><span class="rate-track blue-track"><i id="profile-walks-bar"></i></span></div>
+              <div class="rate-row"><div><span>K</span><strong id="profile-strikeouts">—</strong></div><span class="rate-track gold-track"><i id="profile-strikeouts-bar"></i></span></div>
+              <div class="rate-row"><div><span>Outs</span><strong id="profile-outs">—</strong></div><span class="rate-track gray-track"><i id="profile-outs-bar"></i></span></div>
+            </div>
+            <p class="profile-note">Tasas suavizadas hacia MLB y ajustadas por el pitcher seleccionado cuando hay datos. Outs incluye ponches; K aparece aparte como subconjunto.</p>
+          </article>
+        </div>
+
+        <div class="analysis-grid lower-grid">
+          <article class="content-card games-card">
+            <div class="card-heading">
+              <div><p class="section-kicker">DETALLE DE MUESTRA</p><h3>Últimos juegos</h3></div>
+              <span id="pa-summary" class="card-unit">— PA</span>
+            </div>
+            <div id="recent-games" class="recent-games"></div>
+          </article>
+          <article class="content-card contact-card">
+            <div class="card-heading">
+              <div><p class="section-kicker">CALIDAD DE CONTACTO</p><h3>Cómo sale la bola</h3></div>
+              <span class="card-unit">STATCAST</span>
+            </div>
+            <div class="contact-stats">
+              <div><span>xBA de contacto</span><strong id="statcast-xba">—</strong><small id="statcast-xba-sample">contactos rastreados</small></div>
+              <div><span>Ángulo promedio</span><strong id="launch-angle">—</strong><small>grados</small></div>
+              <div><span>Barrel rate</span><strong id="barrel-rate">—</strong><small>bolas bateadas</small></div>
+              <div><span>Historial efectivo</span><strong id="effective-pa">—</strong><small>PA ponderadas sin forma reciente</small></div>
+            </div>
+            <div id="model-insight" class="model-insight" role="status"></div>
+            <div class="method-note"><span class="method-mark">i</span><p id="model-note">—</p></div>
+          </article>
+          <article class="content-card drivers-card">
+            <div class="card-heading">
+              <div><p class="section-kicker">LECTURA DEL MODELO</p><h3>Qué mueve la proyección</h3></div>
+              <span class="card-unit">FACTORES</span>
+            </div>
+            <ul id="driver-list" class="driver-list"></ul>
+          </article>
+          <article class="content-card seasons-card">
+            <div class="card-heading">
+              <div><p class="section-kicker">TRAYECTORIA</p><h3>Evolución por temporada</h3></div>
+              <span class="card-unit">STATCAST</span>
+            </div>
+            <p class="season-intro">Compara resultados reales con la calidad estimada de contacto para distinguir rendimiento de variación.</p>
+            <div class="season-table-wrap">
+              <table class="season-table">
+                <thead>
+                  <tr><th>Temporada</th><th>PA</th><th>H/PA</th><th>xBA-aj.</th><th>HR</th><th>K</th><th>EV</th></tr>
+                </thead>
+                <tbody id="season-rows"></tbody>
+              </table>
+            </div>
+          </article>
+        </div>
+        <div class="analysis-grid validation-grid">
+          <article class="content-card validation-card">
+            <div class="card-heading">
+              <div><p class="section-kicker">CONTROL DE CALIDAD</p><h3>¿Cómo habría acertado?</h3></div>
+              <span class="card-unit">JUEGOS NO USADOS</span>
+            </div>
+            <p class="validation-intro">Repite la predicción del bateador en juegos pasados usando solo datos previos y la compara con una tasa reciente. Evalúa el modelo base; no reutiliza el pitcher seleccionado para el próximo juego.</p>
+            <div id="validation-metrics" class="validation-metrics" hidden>
+              <div><span>Juegos evaluados</span><strong id="validation-count">—</strong></div>
+              <div><span>Error medio de hits</span><strong id="validation-mae">—</strong></div>
+              <div><span>Referencia reciente</span><strong id="validation-baseline">—</strong></div>
+              <div><span>Brier · 1+ hit</span><strong id="validation-brier">—</strong></div>
+              <div><span>Error de calibración</span><strong id="validation-calibration">—</strong></div>
+            </div>
+            <div class="validation-actions">
+              <p id="validation-status" role="status" aria-live="polite">La validación se calcula tras el análisis.</p>
+              <button id="run-validation" class="quiet-button" type="button">Medir precisión histórica</button>
+            </div>
+          </article>
+        </div>
+        <p class="source-note">Fuente: Baseball Savant · Estimaciones estadísticas, no resultados garantizados.</p>
+      </section>
+    </main>
+
+    <dialog id="install-help" class="install-dialog" aria-labelledby="install-title">
+      <div class="dialog-heading">
+        <div><p class="section-kicker">DIAMOND IQ EN TU BOLSILLO</p><h2 id="install-title">Instalar en tu dispositivo</h2></div>
+        <button id="close-install-help" class="dialog-close" type="button" aria-label="Cerrar">×</button>
+      </div>
+      <div id="install-instructions" class="install-instructions"></div>
+      <p class="install-requirement">Para instalar y usar el modo sin conexión, la dirección debe usar HTTPS. En una red local por HTTP puedes abrir el sitio en el navegador; las consultas siguen necesitando Internet.</p>
+    </dialog>
+
+    <footer class="site-footer">
+      <span>DIAMOND IQ <i></i> BASEBALL ANALYZER 2.0</span>
+      <span>Construido con datos públicos de MLB Statcast</span>
+    </footer>
+  </body>
+</html>

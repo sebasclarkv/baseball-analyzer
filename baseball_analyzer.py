@@ -63,7 +63,7 @@ class BaseballAnalyzer:
                                fg=self.primary_color, bg=self.card_bg)
         title_label.pack()
         
-        author_label = tk.Label(header_frame, text="By: @sebastianclarkv", 
+        author_label = tk.Label(header_frame, text="By: @sebasclarkv", 
                                font=('Helvetica', 11, 'italic'), 
                                fg=self.secondary_color, bg=self.card_bg)
         author_label.pack(pady=(5, 0))
@@ -320,7 +320,7 @@ class BaseballAnalyzer:
         result = f"""
 ╔═══════════════════════════════════════════════════════════════════════╗
 ║             ANÁLISIS DE PROBABILIDADES DE BATEO                      ║
-║                     By: @sebastianclarkv                              ║
+║                     By: @sebasclarkv                                  ║
 ╚═══════════════════════════════════════════════════════════════════════╝
 
 🏃 JUGADOR: {analysis['player_name']}
