@@ -1,10 +1,10 @@
-# ⚾ Diamond IQ · Baseball Analyzer 2.2
+# ⚾ Diamond IQ · Baseball Analyzer 3.0
 
 **El partido, el duelo y una proyección que puedes entender.** Explora la jornada MLB, elige un bateador de la alineación publicada y consulta sus probabilidades de terminar con **0, 1 o 2+ hits**. También puedes analizar su perfil sin seleccionar un partido.
 
 Web adaptable a Mac, iPhone y Android, con servidor local, reportes guardados y PWA instalable. Sin cuenta ni claves de API. Las consultas nuevas requieren Internet y acceso a los proveedores públicos.
 
-[Empezar en Mac](#empezar-en-mac) · [Guía de uso](#del-partido-a-la-proyección) · [Cómo calcula](docs/modelo.md) · [Evaluación histórica](docs/evaluacion.md) · [Comprobar conexiones](#comprobar-conexiones) · [Acceso móvil](#iphone-y-android) · [Autor](#autor)
+[Empezar en Mac](#empezar-en-mac) · [Modo en vivo](#seguir-un-partido-en-vivo) · [Guía de uso](#del-partido-a-la-proyección) · [Cómo calcula](docs/modelo.md) · [Evaluación histórica](docs/evaluacion.md) · [Comprobar conexiones](#comprobar-conexiones) · [Acceso móvil](#iphone-y-android) · [Autor](#autor)
 
 Vista de la interfaz con **datos sintéticos de prueba**, no un pronóstico real de MLB:
 
@@ -12,7 +12,13 @@ Vista de la interfaz con **datos sintéticos de prueba**, no un pronóstico real
 
 [Ver el análisis en móvil](docs/diamond-iq-390.png) · [Ver el marcador móvil con un juego real ya finalizado](docs/marcador-390.png)
 
-## Qué cambia en 2.2
+## Qué cambia en 3.0
+
+El **modo En vivo** reúne marcador, cuenta, corredores, lanzador y bateador actuales. Muestra la probabilidad de victoria publicada por MLB tras la última aparición completada y estima hits adicionales del bateador bajo escenarios explícitos de oportunidades. Incluye una repetición de un juego real para recorrer un cambio de ventaja.
+
+[Ver el tablero en vivo en móvil](docs/en-vivo-390.png)
+
+## Qué cambió en 2.2
 
 - **Medición por temporadas.** Evalúa una cohorte reproducible y reserva la última temporada para medir la distribución de 0, 1 y 2+ hits. Statcast distingue los juegos de temporada regular, playoffs y pretemporada.
 - **Pronóstico frente al resultado.** Cruza los pronósticos guardados antes del primer lanzamiento con los resultados finales de MLB. Compara el error con y sin orden al bate, abridor o bullpen en los mismos juegos.
@@ -73,6 +79,15 @@ git pull --ff-only origin main
 
 Si Git informa cambios locales, consérvalos antes de actualizar. Para cambiar puerto usa `.venv/bin/python server.py --port 8080`; el lanzador usa el puerto 8000.
 
+## Seguir un partido en vivo
+
+1. En **Jornada MLB**, selecciona un partido en curso. El tablero se actualiza cada **15 segundos** mientras se está siguiendo el juego. Puedes pausar y volver a actualizarlo.
+2. Lee entrada, cuenta, outs y corredores. El porcentaje de victoria de cada equipo se atribuye a **MLB Stats API** y corresponde a la última aparición completada para la que MLB publicó el dato. El marcador y la cuenta pueden estar más adelantados.
+3. Selecciona un bateador que siga en la alineación y solicita la estimación. El tablero separa sus hits oficiales de la probabilidad de registrar **al menos un hit adicional** con 1, 2 o 3 oportunidades. La cifra depende del pitcher usado y de que el bateador tenga esas oportunidades, que pueden no llegar.
+4. Revisa la hora del dato. Si cambia el estado del juego, vuelve a calcular para el nuevo turno. La primera consulta de Statcast puede tardar más que la actualización del tablero.
+
+Usa **Ver una jugada de ejemplo** si quieres probarlo sin un partido en curso. La repetición muestra el antes y el después del jonrón de Andrés Giménez en Yankees–Blue Jays del 1 de julio de 2025. La estimación de bateo usa historial anterior al día del juego. [Cómo se calculan los números en vivo](docs/modelo.md#modo-en-vivo)
+
 ## Del partido a la proyección
 
 1. **Elige una fecha y un partido.** El calendario muestra el estado publicado por MLB. Solo los partidos que todavía no empiezan pueden usarse para una proyección previa; los anteriores se pueden consultar como contexto.
@@ -104,7 +119,7 @@ Los ajustes actuales y sus supuestos están documentados en [Cómo calcula el mo
 
 | Fuente | Uso | Acceso |
 |---|---|---|
-| MLB Stats API | Jornada, roster, alineaciones publicadas, estadio e históricos de equipo/pitching | Acceso público habitual sin clave; puede cambiar o fallar |
+| MLB Stats API | Jornada, alineaciones, marcador y jugadas en vivo, probabilidad de victoria publicada e históricos de equipo/pitching | Acceso público habitual sin clave; puede cambiar o fallar |
 | Baseball Savant / Statcast, mediante pybaseball | Historial de lanzamientos, xBA y calidad de contacto | Consulta pública y caché local |
 | Chadwick Bureau | Identidad y búsqueda de jugadores | Registro público mediante pybaseball |
 | Open-Meteo | Pronóstico horario cerca del inicio del partido | Modalidad gratuita para uso no comercial, sujeta a sus [condiciones](https://open-meteo.com/en/pricing) |

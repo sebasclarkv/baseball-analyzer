@@ -53,3 +53,17 @@ Open-Meteo devuelve viento respecto al norte geográfico; no se interpreta como 
 La evaluación retrospectiva mide el perfil del bateador con cortes anteriores a cada fecha y separa la temporada de prueba. La evaluación de partidos usa pronósticos archivados antes del inicio real y sus correspondientes box scores. Cuando hay datos suficientes, el archivo incluye variantes calculadas con las mismas entradas, retirando cada factor por separado para comparar orden al bate, abridor y bullpen.
 
 El candidato CatBoost usa exclusivamente características históricas del bateador. Entrenamiento, calibración logística y prueba se separan por fechas completas; las predicciones del conjunto de prueba no ajustan parámetros. El candidato se guarda para investigación y no reemplaza automáticamente el modelo servido. Consulta [Evaluación histórica](evaluacion.md).
+
+## Modo en vivo
+
+El tablero toma entrada, outs, corredores, cuenta, bateador, lanzador y resultados ya registrados del feed del partido. La **probabilidad de victoria** viene de MLB y se vincula a la última aparición completada que tenga ese dato. La hora y el cambio en puntos porcentuales corresponden a esa jugada. Entre jugadas, el marcador o la cuenta pueden avanzar antes de que MLB publique otro porcentaje.
+
+La **estimación de hit** usa hasta 730 días de Statcast y separa temporada regular, playoffs y pretemporada. El corte excluye el día del partido. Primero estima H/PA ajustada al pitcher mostrado si hay muestra suficiente. Para un turno activo con una cuenta distinta de 0–0, compara los resultados del bateador en apariciones que alcanzaron esa cuenta con su referencia de 0–0. Cada aparición cuenta una sola vez, aunque una falta repita la cuenta. El ajuste se suaviza cuando hay poca evidencia.
+
+Si la primera aparición tiene probabilidad `p` y las siguientes tienen probabilidad al inicio `q`, la estimación de un hit adicional en `n` apariciones es `1 − (1 − p) × (1 − q)^(n − 1)`. Los escenarios de 1, 2 y 3 apariciones suponen un enfrentamiento estable e independencia de resultados. El equipo podría terminar el juego antes de que el bateador vuelva al plato. Los hits que ya consiguió se muestran aparte.
+
+La comprobación retrospectiva evaluó **6,562 apariciones de 34 bateadores** en temporada regular de 2025, con el perfil fijado al inicio de ese año. Se eligió de antemano una sola foto entre el segundo y el sexto lanzamiento por aparición y se conservaron los turnos que llegaron a esa cuenta. El Brier bajó de **0.14269 a 0.14048** (un menor error). La probabilidad media ajustada fue 19.42% y la frecuencia observada fue 16.87%. La prueba aísla la contribución de la cuenta usando el perfil del bateador. La calibración del enfrentamiento completo en vivo queda por medir.
+
+Para reproducir esta prueba, [descarga la cohorte histórica](evaluacion.md#evaluar-una-cohorte) y ejecuta `.venv/bin/python scripts/check_live_count.py`. El reporte incluye el intervalo del 95% de la diferencia de Brier, calculado al remuestrear fechas de juego completas.
+
+El ejemplo histórico usa fotos del feed con corte explícito. La primera muestra a Toronto abajo 2–1 en la cuarta entrada y la segunda muestra el 4–2 tras el jonrón de Andrés Giménez. MLB pasó de 42.1% a 75.9% de probabilidad de victoria para Toronto. El porcentaje describe la jugada consultada y puede diferir del de un proveedor de apuestas.

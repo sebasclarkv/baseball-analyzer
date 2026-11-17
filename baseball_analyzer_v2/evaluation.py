@@ -7,7 +7,7 @@ from typing import Callable
 import numpy as np
 import pandas as pd
 
-from baseball_analyzer_v2 import __version__
+from baseball_analyzer_v2 import PREGAME_MODEL_VERSION
 from baseball_analyzer_v2.analytics import HIT_EVENTS, filter_game_type, normalize_game_type
 from baseball_analyzer_v2.forecast_metrics import score_hit_buckets
 from baseball_analyzer_v2.projections import _opportunities, build_projection
@@ -129,7 +129,7 @@ def cohort_report(observations: list[dict], holdout_season: int | None = None) -
     holdout = rows if holdout_season is None else [r for r in rows if int(r["date"][:4]) == holdout_season]
     players = sorted({r["player_id"] for r in holdout})
     groups = sorted({r.get("group", "unclassified") for r in holdout})
-    return {"status": "available" if len(holdout) >= 1000 and len(players) >= 10 else "limited", "model_version": __version__,
+    return {"status": "available" if len(holdout) >= 1000 and len(players) >= 10 else "limited", "model_version": PREGAME_MODEL_VERSION,
             "generated_at": datetime.now(timezone.utc).isoformat(), "predictions": len(holdout), "players": len(players),
             "seasons": seasons, "holdout_season": holdout_season, "total_observations": len(rows),
             "metrics": score(holdout), "baseline": score(holdout, "baseline_any_hit", "baseline_hits"),

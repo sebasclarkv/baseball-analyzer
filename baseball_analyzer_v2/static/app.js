@@ -1,5 +1,6 @@
 import { loadGamesApi, loadContextApi } from "./api.js";
 import { initMatchupTools } from "./matchup-tools.js";
+import { gameFollowKind, initLiveBoard } from "./live-board.js";
 import { decodeReportBackup, encodeReportBackup, mergeReport, newestReports, normalizeReport, reportIdentity } from "./report-notebook.js";
 
 const byId = (id) => document.getElementById(id);
@@ -534,7 +535,7 @@ function displayGameStatus(game) {
     return "Final";
   }
   if (status.includes("progress") || status.includes("live") || status.includes("in game")) {
-    return "En juego";
+    return "En vivo";
   }
   if (status.includes("postpon")) return "Pospuesto";
   if (status.includes("suspend")) return "Suspendido";
@@ -626,7 +627,7 @@ function renderGames(payload) {
     appendText(
       top,
       "span",
-      "game-status game-status-" + (isPregameGame(game) ? "pregame" : "closed"),
+      "game-status game-status-" + (gameFollowKind(game) === "live" ? "live" : isPregameGame(game) ? "pregame" : "closed"),
       displayGameStatus(game),
     );
     card.appendChild(top);
@@ -763,9 +764,12 @@ function renderTeamRoster() {
   const lineup = Array.isArray(team.lineup) ? team.lineup : [];
   const published = team.lineup_status === "confirmed";
   const selection = lineup.length ? lineup : (Array.isArray(team.roster) ? team.roster : []);
+  const inGame = gameFollowKind(selectedGame) === "live";
   status.textContent = published ? "PUBLICADA POR MLB" : "NO PUBLICADA";
   status.className = "lineup-status " + (published ? "lineup-published" : "lineup-pending");
-  guidance.textContent = published
+  guidance.textContent = inGame
+    ? "Consulta el tablero en vivo para elegir un bateador de la alineación actual."
+    : published
     ? "Alineación publicada por MLB; puede cambiar antes del primer lanzamiento. Elige un bateador para proyectarlo."
     : lineup.length
       ? "MLB todavía no marca esta alineación como publicada. Los nombres visibles son preliminares, no titulares confirmados."
@@ -911,6 +915,8 @@ async function selectGame(game) {
   updateSearchMessage(
     selectedGameForAnalysis
       ? "Elige un bateador de la alineación o plantilla de este juego."
+      : gameFollowKind(game) === "live"
+        ? "Para estimar hits de este partido, elige un bateador en el tablero en vivo."
       : "Este juego no admite una proyección previa; puedes usar la búsqueda manual sin adjuntarlo.",
   );
   [...gameList.querySelectorAll(".game-card")].forEach((card) => {
@@ -918,6 +924,7 @@ async function selectGame(game) {
   });
 
   gameContextPanel.hidden = false;
+  window.dispatchEvent(new CustomEvent("diamondiq:game-selected", { detail: { game } }));
   setText("game-context-title", "Cargando contexto del juego…");
   setText("game-context-subtitle", "");
   byId("context-probables").replaceChildren();
@@ -2420,4 +2427,5 @@ byId("clear-game-context").addEventListener("click", clearGameContext);
 
 localDataReady = initializeLocalData();
 initMatchupTools();
+initLiveBoard();
 void loadSchedule();

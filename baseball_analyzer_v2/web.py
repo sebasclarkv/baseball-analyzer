@@ -6,7 +6,7 @@ import logging
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -15,6 +15,8 @@ from baseball_analyzer_v2 import __version__, jobs
 from baseball_analyzer_v2.data import fetch_batter_statcast, fetch_pitcher_statcast, search_players
 from baseball_analyzer_v2.evaluation import evaluate_player
 from baseball_analyzer_v2.forecast_validation import archive_forecast, evaluate_archived
+from baseball_analyzer_v2.live import game_live
+from baseball_analyzer_v2.live_hitter import project_live_hitter
 from baseball_analyzer_v2.projections import build_projection
 from baseball_analyzer_v2.sources import SourceUnavailable, game_context, matchup_inputs, schedule
 from baseball_analyzer_v2.storage import CACHE_ROOT, atomic_json
@@ -40,6 +42,11 @@ class ScenarioRequest(AnalysisRequest):
     game_id: int = Field(gt=0)
     scenario_pitcher_id: int = Field(gt=0)
     scenario_pitcher_name: str | None = Field(default=None, min_length=2, max_length=100)
+
+
+class LiveHitterRequest(BaseModel):
+    player_id: int | None = Field(default=None, gt=0)
+    snapshot_id: str | None = Field(default=None, min_length=1, max_length=128)
 
 
 @app.get("/", include_in_schema=False)
@@ -84,6 +91,71 @@ def context(game_id: int):
         return game_context(game_id)
     except SourceUnavailable as exc:
         raise HTTPException(502, str(exc)) from exc
+
+
+def _live_snapshot(game_id: int, at: datetime | None, *, include_win: bool = True) -> dict:
+    if game_id <= 0:
+        raise HTTPException(422, "El identificador del partido debe ser positivo.")
+    if at is not None and at.utcoffset() is None:
+        raise HTTPException(422, "La hora de repetición debe incluir su zona horaria.")
+    if at is not None and at > datetime.now(timezone.utc):
+        raise HTTPException(422, "Elige una hora de repetición que ya haya pasado.")
+    try:
+        return game_live(game_id, as_of=at, include_win=include_win)
+    except SourceUnavailable as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+
+@app.get("/api/games/{game_id}/live")
+def live_game(game_id: int, response: Response, at: datetime | None = None):
+    response.headers["Cache-Control"] = "no-store"
+    return _live_snapshot(game_id, at)
+
+
+@app.post("/api/games/{game_id}/live/hitter")
+def live_hitter(game_id: int, request: LiveHitterRequest, at: datetime | None = None):
+    snapshot = _live_snapshot(game_id, at, include_win=False)
+    if request.snapshot_id is not None and request.snapshot_id != snapshot["snapshot_id"]:
+        raise HTTPException(409, "La situación cambió. Actualiza el tablero y vuelve a calcular.")
+    if snapshot["game"]["phase"] != "live" or snapshot["source"]["stale"]:
+        raise HTTPException(409, "El análisis requiere una actualización de MLB con el partido en juego.")
+
+    current_batter = snapshot.get("batter") or {}
+    player_id = request.player_id or current_batter.get("id")
+    side, player = next(
+        ((side, batter) for side in ("away", "home") for batter in snapshot["game"][side]["lineup"]
+         if batter["id"] == player_id),
+        (None, None),
+    )
+    if not player and player_id and player_id == current_batter.get("id") and snapshot.get("plate_appearance_active"):
+        side, player = snapshot.get("batting_side"), current_batter
+    if side is None or player is None:
+        raise HTTPException(422, "Selecciona un bateador que siga en la alineación. El orden puede cambiar durante el juego.")
+
+    batting_now = side == snapshot.get("batting_side")
+    opponent = snapshot["game"]["home" if side == "away" else "away"]
+    pitcher = (snapshot.get("pitcher") if batting_now else None) or opponent.get("current_pitcher")
+    current_pa = bool(batting_now and current_batter.get("id") == player_id and snapshot.get("plate_appearance_active"))
+    try:
+        cutoff = date.fromisoformat(snapshot["game"]["official_date"])
+        estimate = project_live_hitter(
+            player={"id": player_id, "name": player["name"]},
+            pitcher=pitcher,
+            official_date=cutoff,
+            game_type=snapshot["game"].get("game_type") or "regular",
+            count=snapshot.get("count") if current_pa else None,
+            current_plate_appearance=current_pa,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except Exception as exc:
+        LOGGER.exception("Live hitter estimate unavailable")
+        raise HTTPException(502, "No se pudo consultar el historial del bateador en Statcast.") from exc
+    return {"snapshot_id": snapshot["snapshot_id"], "observed_at": snapshot.get("snapshot_at"),
+            "player": {"id": player_id, "name": player["name"]}, "pitcher": pitcher,
+            "hits": player.get("hits"), "plate_appearances": player.get("plate_appearances"),
+            "pitcher_reference": "current" if batting_now and snapshot.get("pitcher") else "last_known",
+            "current_plate_appearance": current_pa, "estimate": estimate}
 
 
 def history(request: AnalysisRequest, cutoff: date):

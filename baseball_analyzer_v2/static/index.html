@@ -8,12 +8,13 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Diamond IQ">
-    <title>Baseball Analyzer 2.2 · Diamond IQ</title>
+    <title>Baseball Analyzer 3.0 · Diamond IQ</title>
     <link rel="manifest" href="/static/manifest.webmanifest">
     <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
     <link rel="stylesheet" href="/static/styles.css">
     <link rel="stylesheet" href="/static/matchup-tools.css">
+    <link rel="stylesheet" href="/static/live-board.css">
     <script type="module" src="/static/app.js"></script>
     <script type="module" src="/static/prospective.js"></script>
   </head>
@@ -30,7 +31,7 @@
       <div class="topbar-meta">
         <span class="live-dot"></span>
         <span>MLB · STATCAST</span>
-        <span class="version-pill">V2.2</span>
+        <span class="version-pill">V3.0</span>
       </div>
       <button id="install-app" class="install-button" type="button">Instalar app</button>
     </header>
@@ -40,7 +41,7 @@
         <div class="hero-copy">
           <p class="eyebrow"><span class="eyebrow-line"></span> INTELIGENCIA DE BÉISBOL</p>
           <h1>Lee el juego.<br><span>Proyecta el siguiente.</span></h1>
-          <p class="hero-description">Historial de varias temporadas, forma reciente y matchup bateador–pitcher para proyectar el siguiente juego con Statcast.</p>
+          <p class="hero-description">Proyecta la previa con Statcast o sigue el marcador, el turno al bate y las probabilidades cuando empieza el juego.</p>
         </div>
         <div class="hero-stamp" aria-hidden="true">
           <span>01</span>
@@ -54,7 +55,7 @@
           <div>
             <p class="section-kicker">JORNADA MLB</p>
             <h2 id="slate-title">Del primer lanzamiento al matchup</h2>
-            <p class="slate-intro">Elige un juego, revisa lo que MLB ya publicó y luego selecciona al bateador.</p>
+            <p class="slate-intro">Elige un juego para preparar el duelo o seguir el turno al bate en vivo.</p>
           </div>
           <div class="slate-controls">
             <button id="previous-game-date" class="date-step" type="button" aria-label="Día anterior">‹</button>
@@ -68,6 +69,71 @@
         </div>
         <p id="schedule-status" class="schedule-status" role="status" aria-live="polite">Cargando juegos de la fecha…</p>
         <div id="game-list" class="game-list" role="group" aria-label="Juegos MLB de la fecha"></div>
+        <button id="try-live-replay" class="quiet-button live-example" type="button">Ver una jugada de ejemplo</button>
+      </section>
+
+      <section id="live-panel" class="live-board" aria-labelledby="live-title" hidden>
+        <div class="live-board-head">
+          <div>
+            <p id="live-mode" class="live-mode">En vivo</p>
+            <h2 id="live-title" tabindex="-1">Seguimiento del juego</h2>
+          </div>
+          <div class="live-board-actions">
+            <button id="live-refresh" class="quiet-button" type="button">Actualizar ahora</button>
+            <button id="live-pause" class="quiet-button" type="button">Pausar actualizaciones</button>
+            <button id="close-live-panel" class="quiet-button" type="button">Cerrar seguimiento</button>
+          </div>
+        </div>
+        <p id="live-status" class="live-board-status" role="status"></p>
+        <div id="live-replay-switch" class="live-replay-switch" role="group" aria-label="Momentos de la repetición" hidden></div>
+        <div id="live-content" hidden>
+          <div class="live-score-grid">
+            <div class="live-score" role="group" aria-label="Marcador">
+              <div class="live-score-head"><span>Equipo</span><abbr title="Carreras">R</abbr></div>
+              <div id="live-away-team" class="live-score-team"></div>
+              <div id="live-home-team" class="live-score-team"></div>
+            </div>
+            <div id="live-situation" class="live-situation">
+              <p id="live-inning" class="live-inning"></p>
+              <div class="live-field" aria-hidden="true">
+                <div class="live-infield"></div><span id="live-base-1" class="live-base base-first"></span>
+                <span id="live-base-2" class="live-base base-second"></span>
+                <span id="live-base-3" class="live-base base-third"></span><span class="live-plate"></span>
+              </div>
+              <p id="live-bases-label" class="live-bases-label"></p>
+              <dl class="live-counts">
+                <div><dt>Bolas</dt><dd id="live-balls">—</dd></div>
+                <div><dt>Strikes</dt><dd id="live-strikes">—</dd></div>
+                <div><dt>Outs</dt><dd id="live-outs">—</dd></div>
+              </dl>
+            </div>
+          </div>
+          <dl id="live-matchup" class="live-matchup">
+            <div><dt>Al bate</dt><dd id="live-batter">—</dd></div>
+            <div><dt>En el montículo</dt><dd id="live-pitcher">—</dd></div>
+          </dl>
+          <div class="live-play">
+            <h3>Última jugada</h3>
+            <p id="live-last-play"></p>
+          </div>
+          <p id="live-times" class="live-times"></p>
+          <section id="live-win-panel" class="live-win-panel" aria-labelledby="live-win-title">
+            <h3 id="live-win-title">Probabilidad de ganar según MLB</h3>
+            <div id="live-win-grid" class="live-win-grid" hidden></div>
+            <div id="live-win-meter" class="live-win-meter" aria-hidden="true" hidden><span></span><span></span></div>
+            <p id="live-win-note" class="live-times"></p>
+          </section>
+          <section id="live-hitter-panel" class="live-hitter-panel" aria-labelledby="live-hitter-title">
+            <h3 id="live-hitter-title">Hits del bateador</h3>
+            <div class="live-hitter-controls">
+              <label for="live-player-select">Bateador<select id="live-player-select"></select></label>
+              <button id="live-estimate" class="quiet-button" type="button">Estimar hits</button>
+            </div>
+            <p id="live-player-totals" class="live-player-totals"></p>
+            <p id="live-estimate-status" class="live-board-status" role="status"></p>
+            <div id="live-estimate-result" class="live-estimate-result" hidden></div>
+          </section>
+        </div>
       </section>
 
       <section id="game-context-panel" class="game-context-panel" aria-labelledby="game-context-title" hidden>
@@ -77,7 +143,10 @@
             <h2 id="game-context-title">—</h2>
             <p id="game-context-subtitle" class="context-subtitle">—</p>
           </div>
-          <button id="clear-game-context" class="quiet-button" type="button">Quitar juego</button>
+          <div class="live-context-actions">
+            <button id="open-live-panel" class="quiet-button" type="button" hidden>Ver en vivo</button>
+            <button id="clear-game-context" class="quiet-button" type="button">Quitar juego</button>
+          </div>
         </div>
         <div id="context-probables" class="context-probables"></div>
         <div class="team-tabbar">
@@ -493,7 +562,7 @@
                 </div>
                 <p class="cohort-evaluation-status" id="prospective-status" role="status">Comprueba los pronósticos guardados antes de cada partido con el marcador final.</p>
                 <div id="prospective-results"></div>
-                <p class="cohort-report-note"><a href="/api/evaluation/prospective" target="_blank" rel="noopener">Ver reporte del cruce</a></p>
+        <p class="cohort-report-note"><a href="/api/evaluation/prospective" target="_blank" rel="noopener">Ver reporte del cruce</a></p>
               </section>
             </section>
           </div>
@@ -512,7 +581,7 @@
     </dialog>
 
     <footer class="site-footer">
-      <span>DIAMOND IQ <i></i> BASEBALL ANALYZER 2.2</span>
+      <span>DIAMOND IQ <i></i> BASEBALL ANALYZER 3.0</span>
       <span>Construido con datos públicos de MLB Statcast</span>
     </footer>
   </body>

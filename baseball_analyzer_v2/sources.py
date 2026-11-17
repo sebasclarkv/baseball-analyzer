@@ -5,6 +5,7 @@ import json
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
+from typing import TypeVar, overload
 from urllib.parse import urlencode
 
 import httpx
@@ -20,7 +21,21 @@ class SourceUnavailable(RuntimeError):
     pass
 
 
-def public_json(url: str, params: dict | None = None, ttl: int = 300) -> tuple[dict, dict]:
+JSONResponse = TypeVar("JSONResponse", dict, list)
+
+
+@overload
+def public_json(url: str, params: dict | None = None, ttl: int = 300, *,
+                timeout: float = 12) -> tuple[dict, dict]: ...
+
+
+@overload
+def public_json(url: str, params: dict | None = None, ttl: int = 300, *,
+                response_type: type[JSONResponse], timeout: float = 12) -> tuple[JSONResponse, dict]: ...
+
+
+def public_json(url: str, params: dict | None = None, ttl: int = 300, *,
+                response_type: type[dict] | type[list] = dict, timeout: float = 12) -> tuple[dict | list, dict]:
     """Use inherited proxy/CA settings. Failed requests can only reuse labelled cache."""
     key = url + "?" + urlencode(sorted((params or {}).items()))
     path = json_cache_path(key)
@@ -29,15 +44,17 @@ def public_json(url: str, params: dict | None = None, ttl: int = 300) -> tuple[d
         cached = json.loads(path.read_text())
     except (OSError, ValueError):
         pass
+    if not isinstance(cached, dict) or not isinstance(cached.get("data"), response_type):
+        cached = None
     now = time.time()
     if cached and now - cached["timestamp"] < ttl:
         return cached["data"], {"fetched_at": cached["fetched_at"], "stale": False}
     try:
-        with httpx.Client(timeout=httpx.Timeout(12, connect=4), follow_redirects=True) as client:
+        with httpx.Client(timeout=httpx.Timeout(timeout, connect=min(4, timeout)), follow_redirects=True) as client:
             response = client.get(url, params=params, headers={"User-Agent": "DiamondIQ/2.1 (local baseball research)"})
             response.raise_for_status()
             data = response.json()
-        if not isinstance(data, dict) or data.get("error"):
+        if not isinstance(data, response_type) or (isinstance(data, dict) and data.get("error")):
             raise ValueError("Invalid public data response")
         record = {"data": data, "timestamp": now, "fetched_at": datetime.now(timezone.utc).isoformat()}
         with LOCK:

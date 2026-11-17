@@ -8,7 +8,7 @@ from math import exp, lgamma
 import numpy as np
 import pandas as pd
 
-from baseball_analyzer_v2 import __version__
+from baseball_analyzer_v2 import PREGAME_MODEL_VERSION
 from baseball_analyzer_v2.analytics import LEAGUE_PRIORS, _log5_rate, build_analysis, filter_game_type, normalize_game_type
 
 
@@ -229,7 +229,7 @@ def build_projection(raw_stats: pd.DataFrame, player: dict, games_requested: int
     if opponent_pitcher:
         result["drivers"].append({"label": "Abridor y relevistas", "description": f"{start_pa:.1f} apariciones esperadas contra el abridor y {expected_pa - start_pa:.1f} contra el bullpen.",
                                   "hit_rate_change": result["per_plate_appearance"]["hits"]["rate"] - base["per_plate_appearance"]["hits"]["rate"]})
-    result["model"].update({"name": "Trayectoria bayesiana + exposición a abridor/bullpen + distribución de hits", "version": __version__,
+    result["model"].update({"name": "Trayectoria bayesiana + exposición a abridor/bullpen + distribución de hits", "version": PREGAME_MODEL_VERSION,
                            "game_type": game_type, "history_game_type": history_game_type,
                            "plate_appearance_forecast": opportunity_method, "data_cutoff_exclusive": cutoff.isoformat(),
                            "event_probability_method": "Convolución de beta-binomiales por abridor y bullpen, mezclada sobre oportunidades al bate.",
