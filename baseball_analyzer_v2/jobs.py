@@ -9,7 +9,7 @@ LOCK = Lock()
 JOBS = {}
 
 
-def submit(action):
+def submit(action, *, error_message="No se pudo evaluar el historial. Revisa acceso a Statcast y datos disponibles."):
     with LOCK:
         for key in list(JOBS):
             if JOBS[key]["status"] in {"complete", "error"} and time() - JOBS[key]["created"] > 3600:
@@ -30,7 +30,7 @@ def submit(action):
                 JOBS[job_id].update(status="complete", result=result)
         except Exception:
             with LOCK:
-                JOBS[job_id].update(status="error", message="No se pudo evaluar el historial. Revisa acceso a Statcast y datos disponibles.")
+                JOBS[job_id].update(status="error", message=error_message)
     POOL.submit(run)
     return {"id": job_id, "status": "queued"}
 

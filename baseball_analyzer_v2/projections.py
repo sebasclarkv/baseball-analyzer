@@ -8,7 +8,8 @@ from math import exp, lgamma
 import numpy as np
 import pandas as pd
 
-from baseball_analyzer_v2.analytics import LEAGUE_PRIORS, _log5_rate, build_analysis
+from baseball_analyzer_v2 import __version__
+from baseball_analyzer_v2.analytics import LEAGUE_PRIORS, _log5_rate, build_analysis, filter_game_type, normalize_game_type
 
 
 def beta_binomial(estimate: dict, n: int) -> np.ndarray:
@@ -94,17 +95,29 @@ def _repertoire(raw: pd.DataFrame | None, cutoff: date) -> list:
 def build_projection(raw_stats: pd.DataFrame, player: dict, games_requested: int, lookback_days: int,
                      forecast_date: date | None = None, pitcher_stats: pd.DataFrame | None = None,
                      opponent_pitcher: dict | None = None, context: dict | None = None,
-                     inputs: dict | None = None) -> dict:
+                     inputs: dict | None = None, *, game_type: str | None = None) -> dict:
     cutoff = forecast_date or datetime.now(timezone.utc).date()
     inputs = inputs or {}
+    game_type = normalize_game_type(game_type or (context or {}).get("game", {}).get("game_type") or "regular")
+    if not {"game_date", "events"}.issubset(raw_stats.columns):
+        raise ValueError("La respuesta de Statcast no contiene las columnas esperadas.")
     days = pd.to_datetime(raw_stats["game_date"], errors="coerce", utc=True).dt.date
-    stats = raw_stats.loc[(days < cutoff) & (days >= cutoff - timedelta(days=lookback_days))].copy()
+    preceding = raw_stats.loc[(days < cutoff) & (days >= cutoff - timedelta(days=lookback_days))].copy()
+    history_game_type = game_type
+    stats = filter_game_type(preceding, history_game_type)
+    if history_game_type != "regular" and not stats["events"].notna().any():
+        history_game_type = "regular"
+        stats = filter_game_type(preceding, history_game_type)
+    if stats.empty:
+        raise ValueError("No hay historial Statcast anterior para este jugador en el tipo de partido seleccionado.")
     if pitcher_stats is not None and not pitcher_stats.empty:
         pdays = pd.to_datetime(pitcher_stats["game_date"], errors="coerce", utc=True).dt.date
         pitcher_stats = pitcher_stats.loc[(pdays < cutoff) & (pdays >= cutoff - timedelta(days=lookback_days))].copy()
-    base = build_analysis(stats, player, games_requested, lookback_days, today=cutoff)
+        pitcher_stats = filter_game_type(pitcher_stats, history_game_type)
+    base = build_analysis(stats, player, games_requested, lookback_days, today=cutoff, game_type=history_game_type)
     starter_report = build_analysis(stats, player, games_requested, lookback_days, today=cutoff,
-                                   pitcher_stats=pitcher_stats, opponent_pitcher=opponent_pitcher) if opponent_pitcher else base
+                                   pitcher_stats=pitcher_stats, opponent_pitcher=opponent_pitcher,
+                                   game_type=history_game_type) if opponent_pitcher else base
     result = deepcopy(base)
     result["opponent_pitcher"] = starter_report.get("opponent_pitcher")
     starter_rates = starter_report["per_plate_appearance"]
@@ -189,6 +202,10 @@ def build_projection(raw_stats: pd.DataFrame, player: dict, games_requested: int
     if context and "retract" in str(context.get("weather", {}).get("roof", "")).lower():
         missing.append("Estado abierto o cerrado del techo retráctil sin confirmar.")
     warnings = list(inputs.get("warnings", [])) + (context or {}).get("warnings", [])
+    if history_game_type != game_type:
+        warnings.append("Sin apariciones completas en la fase seleccionada. El perfil Statcast usa únicamente juegos de temporada regular.")
+    if "game_type" not in stats or stats["game_type"].isna().all():
+        warnings.append("El archivo Statcast no declara el tipo de juego y se interpreta como temporada regular.")
     for raw in (raw_stats, pitcher_stats):
         if raw is not None and raw.attrs.get("provenance", {}).get("stale"):
             warnings.append("Statcast guardado: la descarga no se pudo actualizar.")
@@ -212,7 +229,8 @@ def build_projection(raw_stats: pd.DataFrame, player: dict, games_requested: int
     if opponent_pitcher:
         result["drivers"].append({"label": "Abridor y relevistas", "description": f"{start_pa:.1f} apariciones esperadas contra el abridor y {expected_pa - start_pa:.1f} contra el bullpen.",
                                   "hit_rate_change": result["per_plate_appearance"]["hits"]["rate"] - base["per_plate_appearance"]["hits"]["rate"]})
-    result["model"].update({"name": "Trayectoria bayesiana + exposición a abridor/bullpen + distribución de hits", "version": "2.1",
+    result["model"].update({"name": "Trayectoria bayesiana + exposición a abridor/bullpen + distribución de hits", "version": __version__,
+                           "game_type": game_type, "history_game_type": history_game_type,
                            "plate_appearance_forecast": opportunity_method, "data_cutoff_exclusive": cutoff.isoformat(),
                            "event_probability_method": "Convolución de beta-binomiales por abridor y bullpen, mezclada sobre oportunidades al bate.",
                            "confidence_interval": "Rango predictivo discreto aproximado del 90%; cobertura aún no calibrada."})

@@ -1,4 +1,4 @@
-# Cómo calcula Diamond IQ 2.1
+# Cómo calcula Diamond IQ 2.2
 
 ## Evidencia histórica
 
@@ -6,7 +6,9 @@ El modelo conserva la estimación bayesiana de la versión anterior: vida media 
 
 La incertidumbre limita la evidencia efectiva al menor valor entre suma de pesos y tamaño efectivo de muestra. Así, cientos de apariciones muy antiguas no generan artificialmente una banda estrecha.
 
-Las consultas permiten hasta 5000 días en la API (el selector ofrece hasta diez años) y se limitan a la disponibilidad Statcast desde 2015. El historial termina antes de la fecha del pronóstico; se excluye el día completo, incluso en dobles juegos. Así se evita incorporar resultados parciales o finales del partido que se pretende proyectar.
+Las consultas permiten hasta 5000 días en la API (el selector ofrece hasta diez años) y se limitan a la disponibilidad Statcast desde 2015. El historial termina antes de la fecha del pronóstico. Se excluye el día completo, incluso en dobles juegos, para proteger el corte de información.
+
+El perfil sin partido usa juegos de temporada regular. En una previa se intenta utilizar historial de la fase del juego: regular, postemporada o pretemporada. Si faltan apariciones completas de la fase, el perfil de un juego de pretemporada o playoffs puede usar historial regular y lo indica. Los insumos MLB de equipo y pitchers se consultan para la fase del partido.
 
 ## Oportunidades y rivales
 
@@ -34,7 +36,7 @@ El rango describe resultados enteros del partido. No es un intervalo de confianz
 
 ## Qué se aplica y qué se muestra
 
-| Factor | Estado en 2.1 |
+| Factor | Estado en 2.2 |
 |---|---|
 | Trayectoria, forma, xBA, mano y tasas del abridor | Participan en las tasas |
 | Orden al bate, PA del equipo y duración del abridor | Participan cuando hay datos; alternativa declarada cuando faltan |
@@ -48,6 +50,6 @@ Open-Meteo devuelve viento respecto al norte geográfico; no se interpreta como 
 
 ## Evaluación y candidatos
 
-La evaluación retrospectiva actual cubre el perfil del bateador. No reutiliza las alineaciones o rosters actuales para fingir el contexto de partidos antiguos. Reconstruir el modelo completo exige snapshots históricos anteriores al inicio. La API archiva los pronósticos nuevos con su contexto para permitir ese trabajo prospectivo.
+La evaluación retrospectiva mide el perfil del bateador con cortes anteriores a cada fecha y separa la temporada de prueba. La evaluación de partidos usa pronósticos archivados antes del inicio real y sus correspondientes box scores. Cuando hay datos suficientes, el archivo incluye variantes calculadas con las mismas entradas, retirando cada factor por separado para comparar orden al bate, abridor y bullpen.
 
 El candidato CatBoost usa exclusivamente características históricas del bateador. Entrenamiento, calibración logística y prueba se separan por fechas completas; las predicciones del conjunto de prueba no ajustan parámetros. El candidato se guarda para investigación y no reemplaza automáticamente el modelo servido. Consulta [Evaluación histórica](evaluacion.md).

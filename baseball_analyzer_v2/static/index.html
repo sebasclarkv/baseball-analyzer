@@ -8,12 +8,14 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Diamond IQ">
-    <title>Baseball Analyzer 2.1 · Diamond IQ</title>
+    <title>Baseball Analyzer 2.2 · Diamond IQ</title>
     <link rel="manifest" href="/static/manifest.webmanifest">
     <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
     <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" href="/static/matchup-tools.css">
     <script type="module" src="/static/app.js"></script>
+    <script type="module" src="/static/prospective.js"></script>
   </head>
   <body>
     <a class="skip-link" href="#main">Saltar al análisis</a>
@@ -28,7 +30,7 @@
       <div class="topbar-meta">
         <span class="live-dot"></span>
         <span>MLB · STATCAST</span>
-        <span class="version-pill">V2.1</span>
+        <span class="version-pill">V2.2</span>
       </div>
       <button id="install-app" class="install-button" type="button">Instalar app</button>
     </header>
@@ -89,6 +91,49 @@
           <p id="context-source" class="context-source"></p>
         </div>
         <ul id="context-warnings" class="context-warnings" hidden></ul>
+        <div id="matchup-tools" class="matchup-tools" hidden>
+          <section class="scorecard-panel" aria-labelledby="scorecard-title">
+            <div class="matchup-tools-heading">
+              <div><p class="section-kicker">ANOTADOR DE JUEGO</p><h3 id="scorecard-title">Marcador por entradas</h3></div>
+              <span id="scorecard-status" class="scorecard-status"></span>
+            </div>
+            <p id="scorecard-note" class="tool-note"></p>
+            <div class="scorecard-scroll" tabindex="0" role="region" aria-label="Marcador por entradas; desplázate horizontalmente para ver todas las entradas y el total">
+              <table id="inning-scorecard" class="inning-scorecard" aria-label="Carreras por entrada"></table>
+            </div>
+          </section>
+
+          <section class="matchup-tool-panel" aria-labelledby="compare-title">
+            <div class="matchup-tools-heading">
+              <div><p class="section-kicker">DUELO DE BATEADORES</p><h3 id="compare-title">Dos compañeros, un mismo juego</h3></div>
+              <span class="tool-stamp">MISMA ALINEACIÓN</span>
+            </div>
+            <p id="compare-guidance" class="tool-note">Elige dos bateadores del mismo equipo para ver sus proyecciones frente al abridor probable.</p>
+            <div class="tool-controls compare-controls">
+              <label for="compare-player-a">Primer bateador<select id="compare-player-a"></select></label>
+              <label for="compare-player-b">Segundo bateador<select id="compare-player-b"></select></label>
+              <button id="run-hitter-comparison" class="quiet-button" type="button" disabled>Comparar bateadores</button>
+            </div>
+            <p id="compare-status" class="tool-status" role="status" aria-live="polite"></p>
+            <div id="compare-results" class="compare-results" hidden aria-live="polite"></div>
+          </section>
+
+          <section class="matchup-tool-panel scenario-panel" aria-labelledby="scenario-title">
+            <div class="matchup-tools-heading">
+              <div><p class="section-kicker">SIMULACIÓN WHAT-IF</p><h3 id="scenario-title">¿Y si abre otro pitcher?</h3></div>
+              <span class="scenario-stamp">HIPOTÉTICO · NO SE GUARDA COMO PRONÓSTICO</span>
+            </div>
+            <p id="scenario-guidance" class="tool-note">Elige un bateador y un pitcher del roster rival. El resultado es un escenario y no modifica el archivo de pronósticos.</p>
+            <div class="tool-controls scenario-controls">
+              <label for="scenario-hitter">Bateador<select id="scenario-hitter"></select></label>
+              <label for="scenario-pitcher">Abridor hipotético<select id="scenario-pitcher"></select></label>
+              <button id="run-pitcher-scenario" class="quiet-button" type="button" disabled>Proyectar escenario</button>
+            </div>
+            <p id="scenario-status" class="tool-status" role="status" aria-live="polite"></p>
+            <div id="scenario-results" class="scenario-results" hidden aria-live="polite"></div>
+            <button id="analyze-official-scenario" class="official-analysis-button" type="button" hidden>Analizar con abridor oficial</button>
+          </section>
+        </div>
       </section>
 
       <section class="search-panel" aria-labelledby="search-title">
@@ -147,11 +192,31 @@
         <p id="form-message" class="form-message" aria-live="polite"></p>
       </section>
 
-      <div class="saved-reports-wrap" id="saved-reports-wrap" hidden>
-        <p class="section-kicker">REPORTES GUARDADOS EN ESTE DISPOSITIVO</p>
+      <section class="saved-reports-wrap" id="saved-reports-wrap" aria-labelledby="saved-reports-title">
+        <div class="notebook-heading">
+          <h2 id="saved-reports-title">Libreta de reportes</h2>
+          <span class="favorites-local-note">Solo en este navegador</span>
+        </div>
+        <div class="notebook-toolbar">
+          <label for="reports-game-filter" class="notebook-filter">
+            Partido
+            <select id="reports-game-filter" aria-controls="saved-reports" disabled>
+              <option value="">Todos los reportes</option>
+            </select>
+          </label>
+          <div class="notebook-backup">
+            <button id="export-saved-reports" class="notebook-action" type="button" disabled>Exportar respaldo</button>
+            <label class="notebook-import notebook-action">
+              Importar respaldo
+              <input id="reports-backup-input" type="file" accept=".json,application/json">
+            </label>
+          </div>
+        </div>
+        <p id="saved-reports-count" class="notebook-count" role="status"></p>
         <div id="saved-reports" class="saved-reports" aria-label="Reportes guardados"></div>
-        <button id="clear-saved-reports" class="saved-clear-button" type="button">Borrar historial local</button>
-      </div>
+        <p id="notebook-status" class="notebook-status" role="status"></p>
+        <button id="clear-saved-reports" class="saved-clear-button" type="button" disabled>Borrar historial local</button>
+      </section>
 
       <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
 
@@ -398,6 +463,16 @@
                     <div><span>Referencia reciente · Brier</span><strong id="cohort-baseline-brier">—</strong></div>
                     <div><span>Referencia reciente · cobertura</span><strong id="cohort-baseline-coverage">—</strong></div>
                   </div>
+                  <div id="cohort-hit-buckets" hidden>
+                    <p id="cohort-distribution-error" class="cohort-scope"></p>
+                    <div class="season-table-wrap">
+                      <table class="season-table">
+                        <caption>Probabilidad media y resultado observado</caption>
+                        <thead><tr><th scope="col">Hits</th><th scope="col">Proyección</th><th scope="col">Observado</th></tr></thead>
+                        <tbody id="cohort-hit-bucket-rows"></tbody>
+                      </table>
+                    </div>
+                  </div>
                   <p id="cohort-scope" class="cohort-scope"></p>
                   <p class="cohort-caution">El estado y las métricas describen el reporte; por sí solos no certifican precisión ni calibración.</p>
                   <section id="cohort-candidate" class="cohort-candidate" hidden aria-labelledby="cohort-candidate-title">
@@ -410,6 +485,15 @@
                     </div>
                   </section>
                 </div>
+              </section>
+              <section class="cohort-evaluation" aria-labelledby="prospective-title">
+                <div class="cohort-heading">
+                  <h4 id="prospective-title">Pronósticos frente a resultados</h4>
+                  <button id="update-prospective" class="quiet-button" type="button">Cruzar resultados MLB</button>
+                </div>
+                <p class="cohort-evaluation-status" id="prospective-status" role="status">Comprueba los pronósticos guardados antes de cada partido con el marcador final.</p>
+                <div id="prospective-results"></div>
+                <p class="cohort-report-note"><a href="/api/evaluation/prospective" target="_blank" rel="noopener">Ver reporte del cruce</a></p>
               </section>
             </section>
           </div>
@@ -424,11 +508,11 @@
         <button id="close-install-help" class="dialog-close" type="button" aria-label="Cerrar">×</button>
       </div>
       <div id="install-instructions" class="install-instructions"></div>
-      <p class="install-requirement">Para instalar y usar el modo sin conexión, la dirección debe usar HTTPS. En una red local por HTTP puedes abrir el sitio en el navegador; las consultas siguen necesitando Internet.</p>
+      <p id="install-requirement" class="install-requirement"></p>
     </dialog>
 
     <footer class="site-footer">
-      <span>DIAMOND IQ <i></i> BASEBALL ANALYZER 2.1</span>
+      <span>DIAMOND IQ <i></i> BASEBALL ANALYZER 2.2</span>
       <span>Construido con datos públicos de MLB Statcast</span>
     </footer>
   </body>

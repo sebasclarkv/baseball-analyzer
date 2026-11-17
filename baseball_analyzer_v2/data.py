@@ -26,7 +26,10 @@ CACHE_ROOT.mkdir(parents=True, exist_ok=True)
 import pybaseball as pyb
 from pybaseball.playerid_lookup import chadwick_register
 
-pyb.cache.enable()
+# The app owns Statcast freshness and Parquet coverage. Reusing the SDK's
+# week-long cache could make a refresh look fresh while serving older data.
+# Chadwick keeps its separately saved CSV via chadwick_register(save=True).
+pyb.cache.config.enabled = False
 
 
 def _normalize(value: Any) -> str:

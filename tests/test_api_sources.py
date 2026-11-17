@@ -56,6 +56,48 @@ def test_started_game_cannot_be_presented_as_pregame(monkeypatch, context_payloa
     assert "ya inició" in response.json()["detail"]
 
 
+def test_official_matchup_cannot_use_an_unpublished_starter(monkeypatch, context_payload):
+    monkeypatch.setattr(web, "game_context", lambda *args: context_payload)
+    monkeypatch.setattr(web, "matchup_inputs", lambda *args: {"starter": None})
+    response = TestClient(web.app).post("/api/analyze", json={"player_id": 99, "player_name": "Prueba",
+                                                            "game_id": 123, "opponent_pitcher_id": 10})
+    assert response.status_code == 422
+    assert "no coincide" in response.json()["detail"]
+
+
+def test_hypothetical_starter_uses_opposing_roster_without_archiving(monkeypatch, tmp_path, history_data, context_payload):
+    opponent = context_payload["teams"]["home"]
+    opponent["roster"] = [{"id": 10, "name": "Abridor probable", "is_pitcher": True},
+                          {"id": 11, "name": "Relevista alternativo", "is_pitcher": True}]
+    official = {"id": 10, "name": "Abridor probable"}
+    context_payload["game"]["home"]["probable_pitcher"] = official
+    monkeypatch.setattr(web, "CACHE_ROOT", tmp_path)
+    monkeypatch.setattr(web, "game_context", lambda *args: context_payload)
+    monkeypatch.setattr(web, "fetch_batter_statcast", lambda *args: history_data)
+    monkeypatch.setattr(sources, "public_json", lambda *args, **kwargs: ({}, {"stale": False}))
+    monkeypatch.setattr(sources, "game_logs", lambda *args: ([], False))
+    fetched = []
+
+    def pitcher_history(pitcher_id, *args):
+        fetched.append(pitcher_id)
+        return history_data.assign(pitcher=pitcher_id)
+
+    monkeypatch.setattr(web, "fetch_pitcher_statcast", pitcher_history)
+    request = {"player_id": 99, "player_name": "Bateador", "game_id": 123, "scenario_pitcher_id": 11}
+    client = TestClient(web.app)
+    response = client.post("/api/scenario", json=request)
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert fetched == [11]
+    assert result["scenario"]["pitcher"] == {"id": 11, "name": "Relevista alternativo"}
+    assert result["scenario"]["official_starter"] == official
+    assert result["game_context"]["game"]["home"]["probable_pitcher"] == official
+    assert result["game_context"]["matchup"]["starter"]["id"] == 11
+    assert not list((tmp_path / "forecasts").glob("*.json"))
+    assert client.post("/api/scenario", json={**request, "scenario_pitcher_id": 12}).status_code == 422
+    assert client.post("/api/scenario", json={**request, "game_id": None}).status_code == 422
+
+
 def test_http_cache_declares_staleness(tmp_path, monkeypatch):
     monkeypatch.setattr(storage, "CACHE_ROOT", tmp_path)
     real_client = httpx.Client
@@ -109,6 +151,25 @@ def test_completed_job_has_result(monkeypatch):
     assert state["result"]["predictions"] == 5
 
 
+def test_prospective_job_writes_report_for_local_archive(monkeypatch, tmp_path):
+    monkeypatch.setattr(web, "CACHE_ROOT", tmp_path)
+    client = TestClient(web.app)
+    report_url = "/api/evaluation/prospective"
+    assert client.get(report_url).json()["status"] == "not_run"
+    response = client.post(report_url + "/jobs")
+    assert response.status_code == 202
+    job_url = "/api/jobs/" + response.json()["id"]
+    for _ in range(100):
+        job = client.get(job_url).json()
+        if job["status"] in {"complete", "error"}:
+            break
+        time.sleep(.01)
+    assert job["status"] == "complete", job
+    assert client.get(report_url + "?summary=true").json() == job["result"]
+    assert client.get(report_url).json()["observations"] == []
+    assert job["result"]["predictions"] == 0
+
+
 def test_service_worker_can_control_root():
     response = TestClient(web.app).get("/service-worker.js")
     assert response.status_code == 200
@@ -120,7 +181,7 @@ def test_service_worker_can_control_root():
 def test_mlb_feed_only_publishes_complete_lineup(monkeypatch, players, expected):
     lineup = list(range(100, 100 + players))
     team_box = {"battingOrder": lineup, "players": {f"ID{p}": {"person": {"id": p, "fullName": f"Jugador {p}"}, "position": {"abbreviation": "OF"}} for p in lineup}}
-    feed = {"gameData": {"datetime": {"dateTime": "2027-04-01T20:00:00Z", "officialDate": "2027-04-01"},
+    feed = {"gameData": {"datetime": {"dateTime": "2027-04-01T20:00:00Z", "officialDate": "2027-04-01"}, "game": {"type": "R"},
                         "teams": {"home": {"id": 1, "name": "Local"}, "away": {"id": 2, "name": "Visitante"}},
                         "venue": {"name": "Estadio"}, "status": {"abstractGameState": "Preview"}},
             "liveData": {"boxscore": {"teams": {"home": team_box, "away": team_box}}}}
@@ -131,6 +192,7 @@ def test_mlb_feed_only_publishes_complete_lineup(monkeypatch, players, expected)
     assert result["teams"]["home"]["lineup_status"] == expected
     assert len(result["teams"]["home"]["lineup"]) == (9 if players == 9 else 0)
     assert result["game"]["home"]["probable_pitcher"] is None
+    assert result["game"]["game_type"] == "R"
 
 
 def test_open_meteo_selects_target_hour_in_utc(monkeypatch):

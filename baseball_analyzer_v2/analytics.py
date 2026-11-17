@@ -38,6 +38,28 @@ OUT_EVENTS = {
     "other_out",
     *STRIKEOUT_EVENTS,
 }
+GAME_TYPE_CODES = {
+    "regular": {"R", "REGULAR"},
+    "postseason": {"F", "D", "L", "W", "C", "P", "PO", "POSTSEASON"},
+    "spring": {"S", "SPRING"},
+}
+
+
+def normalize_game_type(value: str) -> str:
+    code = str(value).strip().upper()
+    for game_type, codes in GAME_TYPE_CODES.items():
+        if code in codes:
+            return game_type
+    raise ValueError("Tipo de juego sin modelo disponible. Usa temporada regular, playoffs o pretemporada.")
+
+
+def filter_game_type(frame: pd.DataFrame, game_type: str) -> pd.DataFrame:
+    """Treat untyped legacy exports as regular; exclude unknown rows in typed exports."""
+    game_type = normalize_game_type(game_type)
+    if "game_type" not in frame or frame["game_type"].isna().all():
+        return frame if game_type == "regular" else frame.iloc[:0]
+    codes = frame["game_type"].astype("string").str.strip().str.upper()
+    return frame.loc[codes.isin(GAME_TYPE_CODES[game_type])]
 
 
 def _wilson_interval(rate: float, sample_size: float, z: float = 1.645) -> tuple[float, float]:
@@ -223,6 +245,8 @@ def build_analysis(
     today: date | None = None,
     pitcher_stats: pd.DataFrame | None = None,
     opponent_pitcher: dict[str, Any] | None = None,
+    *,
+    game_type: str = "regular",
 ) -> dict[str, Any]:
     if raw_stats.empty:
         raise ValueError("Statcast no devolvió registros para este jugador.")
@@ -230,25 +254,21 @@ def build_analysis(
         raise ValueError("La respuesta de Statcast no contiene las columnas esperadas.")
 
     today = today or date.today()
-    stats, plate_appearances = _prepare_statcast(raw_stats, today)
+    game_type = normalize_game_type(game_type)
+    stats, plate_appearances = _prepare_statcast(filter_game_type(raw_stats, game_type), today)
     if plate_appearances.empty:
         raise ValueError("No se encontraron apariciones al plato completas.")
 
-    game_rows = []
-    for game_id, frame in plate_appearances.groupby("_game_id", sort=False):
-        events = frame["_event"]
-        game_rows.append(
-            {
-                "game_id": str(game_id),
-                "day": frame["_game_day"].min(),
-                "pa": int(len(frame)),
-                "hits": int(events.isin(HIT_EVENTS).sum()),
-                "home_runs": int(events.isin(HOME_RUN_EVENTS).sum()),
-                "walks": int(events.isin(WALK_EVENTS).sum()),
-                "strikeouts": int(events.isin(STRIKEOUT_EVENTS).sum()),
-                "outs": int(events.isin(OUT_EVENTS).sum()),
-            }
-        )
+    events = plate_appearances["_event"]
+    game_rows = plate_appearances.assign(
+        hits=events.isin(HIT_EVENTS), home_runs=events.isin(HOME_RUN_EVENTS),
+        walks=events.isin(WALK_EVENTS), strikeouts=events.isin(STRIKEOUT_EVENTS),
+        outs=events.isin(OUT_EVENTS),
+    ).groupby("_game_id", sort=False).agg(
+        day=("_game_day", "min"), pa=("_event", "size"), hits=("hits", "sum"),
+        home_runs=("home_runs", "sum"), walks=("walks", "sum"),
+        strikeouts=("strikeouts", "sum"), outs=("outs", "sum"),
+    ).rename_axis("game_id").reset_index().to_dict("records")
     game_rows.sort(key=_game_sort_key)
     selected_games = game_rows[-games_requested:]
     selected_game_ids = {row["game_id"] for row in selected_games}
@@ -315,7 +335,7 @@ def build_analysis(
             and not pitcher_stats.empty
             and {"game_date", "events"}.issubset(pitcher_stats.columns)
         ):
-            _, pitcher_pa = _prepare_statcast(pitcher_stats, today)
+            _, pitcher_pa = _prepare_statcast(filter_game_type(pitcher_stats, game_type), today)
             pitcher_pa_count = len(pitcher_pa)
             if not pitcher_pa.empty:
                 pitcher_weights = _date_weights(
@@ -646,6 +666,7 @@ def build_analysis(
         "season_trend": season_trend,
         "model": {
             "name": "Modelo bayesiano de trayectoria + matchup log5 + beta-binomial",
+            "game_type": game_type,
             "half_life_days": LONG_TERM_HALF_LIFE_DAYS,
             "form_half_life_days": FORM_HALF_LIFE_DAYS,
             "prior_plate_appearances": PRIOR_PLATE_APPEARANCES,

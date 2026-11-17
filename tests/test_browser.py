@@ -52,14 +52,21 @@ def live_app(monkeypatch, tmp_path, history_data, context_payload):
 @pytest.fixture
 def browser():
     playwright = pytest.importorskip("playwright.sync_api")
+    engine = os.environ.get("DIAMOND_TEST_BROWSER", "chromium")
+    if engine not in {"chromium", "webkit"}:
+        pytest.fail("DIAMOND_TEST_BROWSER debe ser chromium o webkit.")
     with playwright.sync_playwright() as runtime:
-        executable = os.environ.get("CHROMIUM_PATH") or shutil.which("chromium") or shutil.which("chromium-browser")
+        options = {"headless": True}
+        if engine == "chromium" and not os.environ.get("CI"):
+            options["executable_path"] = (
+                os.environ.get("CHROMIUM_PATH") or shutil.which("chromium") or shutil.which("chromium-browser")
+            )
         try:
-            instance = runtime.chromium.launch(headless=True, executable_path=executable, args=["--no-sandbox"])
+            instance = getattr(runtime, engine).launch(**options)
         except playwright.Error:
-            if os.environ.get("CI"):
+            if os.environ.get("CI") or "DIAMOND_TEST_BROWSER" in os.environ:
                 raise
-            pytest.skip("Instala Chromium o ejecuta python -m playwright install chromium.")
+            pytest.skip(f"Instala {engine} con python -m playwright install {engine}.")
         yield instance
         instance.close()
 

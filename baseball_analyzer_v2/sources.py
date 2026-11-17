@@ -13,6 +13,7 @@ from baseball_analyzer_v2.storage import LOCK, atomic_json, json_cache_path
 
 MLB = "https://statsapi.mlb.com"
 WEATHER = "https://api.open-meteo.com/v1/forecast"
+POSTSEASON_GAME_TYPES = {"F", "D", "L", "W", "C", "P"}
 
 
 class SourceUnavailable(RuntimeError):
@@ -68,6 +69,7 @@ def schedule(day: date) -> dict:
                                "abbreviation": team.get("abbreviation", ""), "score": entry.get("score"),
                                "probable_pitcher": _person(entry.get("probablePitcher"))}
             games.append({"id": raw["gamePk"], "start_time": raw.get("gameDate"), "official_date": raw.get("officialDate", day.isoformat()),
+                          "game_type": raw.get("gameType"),
                           "status": raw.get("status", {}).get("detailedState", "Pendiente"),
                           "status_code": raw.get("status", {}).get("abstractGameState", "Preview"),
                           "venue": raw.get("venue", {}), **sides})
@@ -161,7 +163,8 @@ def game_context(game_id: int) -> dict:
             warnings.append("No se pudo obtener la ficha del estadio.")
     if freshness["stale"]:
         warnings.append("Contexto guardado: alineaciones y pitchers pueden haber cambiado.")
-    game = {"id": int(game_id), "start_time": start, "official_date": day, "status": gd.get("status", {}).get("detailedState", "Pendiente"),
+    game = {"id": int(game_id), "start_time": start, "official_date": day, "game_type": gd.get("game", {}).get("type"),
+            "status": gd.get("status", {}).get("detailedState", "Pendiente"),
             "status_code": gd.get("status", {}).get("abstractGameState", "Preview"), "venue": venue, **game_sides}
     innings = [{"number": inning.get("num"), "away": inning.get("away", {}).get("runs"), "home": inning.get("home", {}).get("runs")}
                for inning in linescore.get("innings", [])]
@@ -170,12 +173,12 @@ def game_context(game_id: int) -> dict:
             "as_of": datetime.now(timezone.utc).isoformat()}
 
 
-def game_logs(entity: str, entity_id: int, group: str, cutoff: date) -> tuple[list, bool]:
+def game_logs(entity: str, entity_id: int, group: str, cutoff: date, game_type: str = "R") -> tuple[list, bool]:
     rows, stale = [], False
     # Include preceding season for an early-season projection.
     for season in (cutoff.year - 1, cutoff.year):
         data, source = public_json(MLB + f"/api/v1/{entity}/{int(entity_id)}/stats", {
-            "stats": "gameLog", "group": group, "season": season}, ttl=21600)
+            "stats": "gameLog", "group": group, "season": season, "gameType": game_type}, ttl=21600)
         stale |= source["stale"]
         for block in data.get("stats", []):
             for split in block.get("splits", []):
@@ -188,10 +191,15 @@ def game_logs(entity: str, entity_id: int, group: str, cutoff: date) -> tuple[li
     return sorted(rows, key=lambda x: x["date"]), stale
 
 
-def matchup_inputs(context: dict, player_id: int) -> dict:
+def matchup_inputs(context: dict, player_id: int, *, scenario_pitcher_id: int | None = None) -> dict:
     """Collect historical opportunity/workload inputs, excluding target-date results."""
     game = context["game"]
     cutoff = date.fromisoformat(game.get("official_date") or game["start_time"][:10])
+    game_type = game.get("game_type") or "R"
+    if game_type in POSTSEASON_GAME_TYPES:
+        game_type = "P"
+    if game_type not in {"R", "P", "S"}:
+        raise ValueError("Diamond IQ proyecta juegos de temporada regular, postemporada y pretemporada MLB.")
     own_side = next((side for side, team in context["teams"].items()
                      if any(p["id"] == player_id for p in team["lineup"] + team["roster"])), None)
     if not own_side:
@@ -203,6 +211,13 @@ def matchup_inputs(context: dict, player_id: int) -> dict:
     if own["lineup_status"] == "confirmed" and entry is None:
         raise ValueError("El jugador no aparece en la alineación publicada. Selecciona un titular o analiza su perfil sin partido.")
     starter = game[opponent_side]["probable_pitcher"]
+    if scenario_pitcher_id is not None:
+        if starter and starter["id"] == scenario_pitcher_id:
+            raise ValueError("Elige un lanzador distinto del abridor probable.")
+        alternative = next((p for p in opponent["roster"] if p.get("is_pitcher") and p["id"] == scenario_pitcher_id), None)
+        if alternative is None:
+            raise ValueError("El abridor hipotético debe ser un lanzador del roster rival disponible.")
+        starter = {"id": alternative["id"], "name": alternative["name"]}
     result = {"batting_order": entry["batting_order"] if entry else None, "lineup_confirmed": bool(entry),
               "starter": starter, "team_plate_appearances": [], "starter_batters_faced": [],
               "bullpen": None, "warnings": [], "own_side": own_side}
@@ -215,7 +230,7 @@ def matchup_inputs(context: dict, player_id: int) -> dict:
     except (SourceUnavailable, KeyError, ValueError):
         pass
     try:
-        hitting, stale = game_logs("teams", own["id"], "hitting", cutoff)
+        hitting, stale = game_logs("teams", own["id"], "hitting", cutoff, game_type)
         result["team_plate_appearances"] = [int(r["plateAppearances"]) for r in hitting[-40:] if r.get("plateAppearances")]
         if stale:
             result["warnings"].append("Oportunidades de equipo obtenidas de caché sin actualizar.")
@@ -223,7 +238,7 @@ def matchup_inputs(context: dict, player_id: int) -> dict:
         result["warnings"].append("Sin historial de apariciones del equipo; se usa el historial del bateador.")
     if starter:
         try:
-            pitching, stale = game_logs("people", starter["id"], "pitching", cutoff)
+            pitching, stale = game_logs("people", starter["id"], "pitching", cutoff, game_type)
             result["starter_batters_faced"] = [int(r["battersFaced"]) for r in pitching if r.get("gamesStarted") == 1 and r.get("battersFaced")][-15:]
             if stale:
                 result["warnings"].append("Carga del abridor obtenida de caché sin actualizar.")
@@ -232,7 +247,7 @@ def matchup_inputs(context: dict, player_id: int) -> dict:
     relievers = [p for p in opponent["roster"] if p.get("is_pitcher") and (not starter or p["id"] != starter["id"])]
     def relief(player):
         try:
-            logs, stale = game_logs("people", player["id"], "pitching", cutoff)
+            logs, stale = game_logs("people", player["id"], "pitching", cutoff, game_type)
             rows = [r for r in logs if r.get("gamesStarted") == 0 and r["date"] >= (cutoff - timedelta(days=180)).isoformat()]
             workload = sum(int(r.get("numberOfPitches", 0)) for r in logs if r["date"] >= (cutoff - timedelta(days=3)).isoformat())
             return {"id": player["id"], "name": player["name"], "rows": rows, "pitches_last_3_days": workload, "stale": stale}

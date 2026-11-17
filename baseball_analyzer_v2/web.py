@@ -5,7 +5,6 @@ import json
 import logging
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
@@ -15,9 +14,10 @@ from pydantic import BaseModel, Field
 from baseball_analyzer_v2 import __version__, jobs
 from baseball_analyzer_v2.data import fetch_batter_statcast, fetch_pitcher_statcast, search_players
 from baseball_analyzer_v2.evaluation import evaluate_player
+from baseball_analyzer_v2.forecast_validation import archive_forecast, evaluate_archived
 from baseball_analyzer_v2.projections import build_projection
 from baseball_analyzer_v2.sources import SourceUnavailable, game_context, matchup_inputs, schedule
-from baseball_analyzer_v2.storage import CACHE_ROOT, LOCK, atomic_json
+from baseball_analyzer_v2.storage import CACHE_ROOT, atomic_json
 
 LOGGER = logging.getLogger("baseball_analyzer")
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
@@ -34,6 +34,12 @@ class AnalysisRequest(BaseModel):
     games: int = Field(default=40, ge=5, le=150)
     lookback_days: int = Field(default=1095, ge=30, le=5000)
     max_predictions: int = Field(default=100, ge=1, le=500)
+
+
+class ScenarioRequest(AnalysisRequest):
+    game_id: int = Field(gt=0)
+    scenario_pitcher_id: int = Field(gt=0)
+    scenario_pitcher_name: str | None = Field(default=None, min_length=2, max_length=100)
 
 
 @app.get("/", include_in_schema=False)
@@ -88,6 +94,15 @@ def history(request: AnalysisRequest, cutoff: date):
 
 @app.post("/api/analyze")
 def analyze(request: AnalysisRequest):
+    return _project(request)
+
+
+@app.post("/api/scenario")
+def scenario(request: ScenarioRequest):
+    return _project(request, scenario_pitcher_id=request.scenario_pitcher_id)
+
+
+def _project(request: AnalysisRequest, *, scenario_pitcher_id: int | None = None) -> dict:
     try:
         ctx, inputs = None, {}
         cutoff = datetime.now(timezone.utc).date()
@@ -101,11 +116,14 @@ def analyze(request: AnalysisRequest):
             if ctx["game"]["status_code"] != "Preview" or start_at <= datetime.now(timezone.utc):
                 raise HTTPException(422, "Este partido ya inició o terminó. La proyección es previa al juego; puedes consultar el perfil del jugador sin partido.")
             cutoff = date.fromisoformat(ctx["game"].get("official_date") or start_at.date().isoformat())
-            inputs = matchup_inputs(ctx, request.player_id)
+            if scenario_pitcher_id is not None:
+                inputs = matchup_inputs(ctx, request.player_id, scenario_pitcher_id=scenario_pitcher_id)
+            else:
+                inputs = matchup_inputs(ctx, request.player_id)
             auto = inputs.get("starter")
-            if auto and opponent and auto["id"] != opponent["id"]:
+            if scenario_pitcher_id is None and opponent and (not auto or auto["id"] != opponent["id"]):
                 raise HTTPException(422, "El pitcher seleccionado no coincide con el probable de este partido. Actualiza el partido o analiza sin partido.")
-            opponent = auto or opponent
+            opponent = auto
         stats, start, end = history(request, cutoff)
         pitcher = None
         if opponent:
@@ -115,11 +133,17 @@ def analyze(request: AnalysisRequest):
                 LOGGER.exception("Pitcher history unavailable")
         result = build_projection(stats, {"id": request.player_id, "name": request.player_name.strip()}, request.games,
                                   request.lookback_days, cutoff, pitcher, opponent, ctx, inputs)
+        if scenario_pitcher_id is not None:
+            opposing_side = "home" if inputs["own_side"] == "away" else "away"
+            result["scenario"] = {"type": "hypothetical_starter", "pitcher": opponent,
+                                  "official_starter": ctx["game"][opposing_side]["probable_pitcher"]}
+            return result
         # Freeze forecasts before a result exists, allowing future prospective evaluation.
         try:
-            with LOCK:
-                atomic_json(CACHE_ROOT / "forecasts" / (uuid4().hex + ".json"), result)
-        except OSError:
+            archive_forecast(CACHE_ROOT, result, stats, games=request.games, lookback_days=request.lookback_days,
+                             cutoff=cutoff, pitcher_stats=pitcher, opponent_pitcher=opponent, inputs=inputs)
+        except (OSError, ValueError):
+            LOGGER.exception("Forecast archive failed")
             result["data_quality"]["warnings"].append("No se pudo archivar la proyección en disco.")
         return result
     except HTTPException:
@@ -168,3 +192,30 @@ def evaluation_report():
         return json.loads((CACHE_ROOT / "evaluation" / "latest.json").read_text())
     except (OSError, ValueError):
         return {"status": "not_run", "predictions": 0, "message": "Aún no se ejecutó la evaluación multijugador. Consulta las instrucciones de evaluación del repositorio."}
+
+
+@app.get("/api/evaluation/prospective")
+def prospective_report(summary: bool = False):
+    try:
+        report = json.loads((CACHE_ROOT / "evaluation" / "prospective.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"status": "not_run", "predictions": 0, "message": "Aún no se cruzaron los pronósticos con resultados de MLB."}
+    if summary:
+        report.pop("observations", None)
+    return report
+
+
+def _refresh_prospective(progress):
+    report = evaluate_archived(CACHE_ROOT, progress=progress)
+    atomic_json(CACHE_ROOT / "evaluation" / "prospective.json", report)
+    report.pop("observations", None)
+    return report
+
+
+@app.post("/api/evaluation/prospective/jobs", status_code=202)
+def prospective_job():
+    try:
+        return jobs.submit(_refresh_prospective,
+                           error_message="No se pudo completar el cruce con MLB. Revisa la conexión y el archivo local.")
+    except ValueError as exc:
+        raise HTTPException(429, str(exc)) from exc

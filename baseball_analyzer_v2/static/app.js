@@ -1,4 +1,6 @@
 import { loadGamesApi, loadContextApi } from "./api.js";
+import { initMatchupTools } from "./matchup-tools.js";
+import { decodeReportBackup, encodeReportBackup, mergeReport, newestReports, normalizeReport, reportIdentity } from "./report-notebook.js";
 
 const byId = (id) => document.getElementById(id);
 const form = byId("search-form");
@@ -11,8 +13,11 @@ const formMessage = byId("form-message");
 const notice = byId("notice");
 const dashboard = byId("dashboard");
 const emptyState = byId("empty-state");
-const savedReportsWrap = byId("saved-reports-wrap");
 const savedReports = byId("saved-reports");
+const reportGameFilter = byId("reports-game-filter");
+const reportBackupInput = byId("reports-backup-input");
+const exportReportsButton = byId("export-saved-reports");
+const clearReportsButton = byId("clear-saved-reports");
 const installButton = byId("install-app");
 const installDialog = byId("install-help");
 const installInstructions = byId("install-instructions");
@@ -35,6 +40,7 @@ let selectedGame = null;
 let selectedGameContext = null;
 let selectedTeamSide = "away";
 let selectedGameForAnalysis = null;
+let selectedPlayerSide = null;
 let scheduleGames = [];
 let searchTimer = null;
 let searchController = null;
@@ -44,6 +50,7 @@ let latestAnalysis = null;
 let activeSuggestionIndex = -1;
 let activePitcherSuggestionIndex = -1;
 let deferredInstallPrompt = null;
+let analysisController = null;
 let validationController = null;
 let localDatabasePromise = null;
 let localDataReady = Promise.resolve();
@@ -86,9 +93,11 @@ function clearSuggestions() {
 }
 
 function choosePlayer(player, options = {}) {
+  cancelPendingReportWork();
   selectedPlayer = player;
   selectedGameForAnalysis = options.fromGame && selectedGame &&
     isPregameGame(selectedGame) ? selectedGame.id : null;
+  selectedPlayerSide = selectedGameForAnalysis ? options.side || selectedTeamSide : null;
   form.classList.toggle("game-mode", Boolean(selectedGameForAnalysis));
   if (pitcherField) pitcherField.hidden = Boolean(selectedGameForAnalysis);
   if (selectedGameForAnalysis) {
@@ -159,7 +168,9 @@ function clearPitcherSuggestions() {
 }
 
 function choosePitcher(pitcher) {
+  cancelPendingReportWork();
   selectedGameForAnalysis = null;
+  selectedPlayerSide = null;
   form.classList.remove("game-mode");
   if (pitcherField) pitcherField.hidden = false;
   selectedPitcher = pitcher;
@@ -213,6 +224,35 @@ function updateAnalyzeLabel() {
     : selectedPitcher
       ? "Proyectar matchup"
       : "Analizar bateador";
+}
+
+function resetAnalyzeButton() {
+  analyzeButton.disabled = !selectedPlayer;
+  analyzeButton.classList.remove("is-loading");
+  updateAnalyzeLabel();
+}
+
+function resetValidationButton() {
+  validationButton.disabled = false;
+  validationButton.textContent = latestAnalysis?.validation ? "Volver a medir" : "Medir precisión histórica";
+}
+
+function cancelHistoricalValidation() {
+  if (!validationController) return;
+  validationController.abort();
+  validationController = null;
+  resetValidationButton();
+  renderValidation(latestAnalysis?.validation || null);
+}
+
+function cancelPendingReportWork() {
+  if (analysisController) {
+    analysisController.abort();
+    analysisController = null;
+    resetAnalyzeButton();
+    if (notice.classList.contains("loading")) message("", "");
+  }
+  cancelHistoricalValidation();
 }
 
 function legacyReportsList() {
@@ -270,32 +310,6 @@ function openLocalDatabase() {
   return localDatabasePromise;
 }
 
-function reportIdentity(analysis) {
-  const playerId = analysis.player && analysis.player.id;
-  const pitcherId = analysis.opponent_pitcher && analysis.opponent_pitcher.id || 0;
-  const gameId = analysis.game_context && analysis.game_context.game &&
-    analysis.game_context.game.id || 0;
-  const window = analysis.window || {};
-  return [
-    playerId,
-    window.games_requested || 0,
-    window.lookback_days || 0,
-    pitcherId,
-    gameId,
-  ].join(":");
-}
-
-function normalizeReport(record) {
-  if (!record || !record.analysis || !record.analysis.player || !record.analysis.window) {
-    return null;
-  }
-  return {
-    id: reportIdentity(record.analysis),
-    saved_at: record.saved_at || new Date().toISOString(),
-    analysis: record.analysis,
-  };
-}
-
 async function readStore(database, storeName) {
   const transaction = database.transaction(storeName, "readonly");
   const complete = transactionResult(transaction);
@@ -304,23 +318,44 @@ async function readStore(database, storeName) {
   return result;
 }
 
-async function writeReports() {
-  const database = await openLocalDatabase();
+async function commitReports(database, update) {
   if (!database) {
-    try {
-      localStorage.setItem(savedReportsKey, JSON.stringify(savedReportsCache));
-      return true;
-    } catch (error) {
-      return false;
-    }
+    const reports = new Map(legacyReportsList().map(normalizeReport).filter(Boolean).map((record) => [record.id, record]));
+    update(reports);
+    const next = newestReports(reports.values());
+    localStorage.setItem(savedReportsKey, JSON.stringify(next));
+    return next;
   }
   const transaction = database.transaction("reports", "readwrite");
   const complete = transactionResult(transaction);
   const store = transaction.objectStore("reports");
-  store.clear();
-  savedReportsCache.forEach((record) => store.put(record));
+  const request = store.getAll();
+  let next;
+  request.onsuccess = () => {
+    // Read and change the current snapshot together, including changes from other tabs.
+    const existing = new Map(request.result.map((record) => [record.id, record]));
+    const updated = new Map(existing);
+    try {
+      update(updated);
+      for (const id of existing.keys()) {
+        if (!updated.has(id)) store.delete(id);
+      }
+      for (const [id, record] of updated) {
+        if (record !== existing.get(id)) store.put(record);
+      }
+      next = newestReports(updated.values());
+    } catch (error) {
+      transaction.abort();
+    }
+  };
   await complete;
-  return true;
+  return next;
+}
+
+async function updateSavedReports(update) {
+  const database = await openLocalDatabase();
+  savedReportsCache = await commitReports(database, update);
+  renderSavedReports();
 }
 
 async function writeFavorites() {
@@ -343,24 +378,11 @@ async function migrateLegacyReports(database) {
   }
   if (migrated) return;
 
-  const legacy = legacyReportsList()
-    .map(normalizeReport)
-    .filter(Boolean)
-    .slice(0, 8);
+  const legacy = legacyReportsList().map(normalizeReport).filter(Boolean);
   if (legacy.length) {
-    const existing = await readStore(database, "reports");
-    const merged = new Map(existing.map((record) => [record.id, record]));
-    legacy.forEach((record) => {
-      if (!merged.has(record.id)) merged.set(record.id, record);
+    await commitReports(database, (reports) => {
+      legacy.forEach((record) => reports.set(record.id, mergeReport(reports.get(record.id), record)));
     });
-    const reports = [...merged.values()]
-      .sort((a, b) => String(b.saved_at).localeCompare(String(a.saved_at)))
-      .slice(0, 8);
-    const transaction = database.transaction("reports", "readwrite");
-    const complete = transactionResult(transaction);
-    const store = transaction.objectStore("reports");
-    reports.forEach((record) => store.put(record));
-    await complete;
   }
 
   try {
@@ -376,8 +398,7 @@ async function initializeLocalData() {
     const database = await openLocalDatabase();
     if (database) {
       await migrateLegacyReports(database);
-      savedReportsCache = (await readStore(database, "reports"))
-        .sort((a, b) => String(b.saved_at).localeCompare(String(a.saved_at)));
+      savedReportsCache = newestReports(await readStore(database, "reports"));
       favoritePlayers = (await readStore(database, "favorites"))
         .sort((a, b) => String(a.name).localeCompare(String(b.name), "es"));
     } else {
@@ -704,6 +725,7 @@ function selectTeamSide(side) {
   selectedTeamSide = side;
   renderTeamTabs();
   renderTeamRoster();
+  window.dispatchEvent(new CustomEvent("diamondiq:team-side", { detail: { side } }));
 }
 
 function renderTeamTabs() {
@@ -764,6 +786,7 @@ function renderTeamRoster() {
     button.className = "roster-player" + (
       published && lineup.length ? " is-lineup" : " is-roster-choice"
     );
+    button.dataset.playerId = String(player.id);
     button.disabled = !canProject;
     const isSelected = selectedPlayer &&
       Number(selectedPlayer.id) === Number(player.id) &&
@@ -864,13 +887,18 @@ function renderGameContext(context) {
       (source.stale ? " · caché anterior" : ""),
   );
   gameContextWarnings(context.warnings);
-  byId("analysis-game-context").hidden = true;
+  window.dispatchEvent(new CustomEvent("diamondiq:game-context", {
+    detail: { context, side: selectedTeamSide },
+  }));
 }
 
 async function selectGame(game) {
+  cancelPendingReportWork();
   selectedGame = game;
   selectedGameContext = null;
+  window.dispatchEvent(new CustomEvent("diamondiq:game-cleared"));
   selectedTeamSide = "away";
+  selectedPlayerSide = null;
   selectedGameForAnalysis = isPregameGame(game) ? game.id : null;
   selectedPlayer = null;
   selectedPitcher = null;
@@ -906,7 +934,7 @@ async function selectGame(game) {
     if (controller !== contextController) return;
     renderGameContext(payload);
   } catch (error) {
-    if (error.name === "AbortError") return;
+    if (controller !== contextController || error.name === "AbortError") return;
     setText("game-context-title", (game.away && game.away.name || "Visitante") + " @ " +
       (game.home && game.home.name || "Local"));
     setText(
@@ -918,11 +946,15 @@ async function selectGame(game) {
 }
 
 function clearGameContext() {
+  cancelPendingReportWork();
   if (contextController) contextController.abort();
+  contextController = null;
   selectedGame = null;
   selectedGameContext = null;
   selectedGameForAnalysis = null;
   selectedTeamSide = "away";
+  window.dispatchEvent(new CustomEvent("diamondiq:game-cleared"));
+  selectedPlayerSide = null;
   gameContextPanel.hidden = true;
   form.classList.remove("game-mode");
   if (pitcherField) pitcherField.hidden = false;
@@ -946,44 +978,117 @@ function savedDateLabel(value) {
     : parsed.toLocaleDateString("es-MX", { month: "short", day: "numeric" });
 }
 
+function reportGame(record) {
+  return record.analysis.game_context?.game;
+}
+
+function reportGameLabel(game) {
+  if (!game) return "Sin partido";
+  const away = game.away?.abbreviation || game.away?.name || "Visitante";
+  const home = game.home?.abbreviation || game.home?.name || "Local";
+  const date = game.official_date || String(game.start_time || "").slice(0, 10);
+  const time = game.start_time ? gameTimeLabel(game.start_time) : "Juego " + game.id;
+  return [away + " @ " + home, date, time].filter(Boolean).join(" · ");
+}
+
 function renderSavedReports() {
   const reports = savedReportsList();
-  savedReports.replaceChildren();
-  savedReportsWrap.hidden = reports.length === 0;
+  const focusId = document.activeElement?.dataset.reportPin;
+  const selectedGame = reportGameFilter.value;
+  const games = new Map();
   reports.forEach((record) => {
-    if (!record.analysis.player) return;
+    const game = reportGame(record);
+    games.set(String(game?.id || "no-game"), reportGameLabel(game));
+  });
+  reportGameFilter.replaceChildren(new Option("Todos los reportes", ""));
+  games.forEach((label, id) => reportGameFilter.add(new Option(label, id)));
+  reportGameFilter.value = games.has(selectedGame) ? selectedGame : "";
+  reportGameFilter.disabled = reports.length === 0;
+  exportReportsButton.disabled = reports.length === 0;
+  clearReportsButton.disabled = reports.length === 0;
+
+  const filtered = reports.filter((record) => !reportGameFilter.value ||
+    String(reportGame(record)?.id || "no-game") === reportGameFilter.value);
+  const sorted = filtered.filter((record) => record.pinned)
+    .concat(filtered.filter((record) => !record.pinned));
+  setText("saved-reports-count", reports.length === 0
+    ? "El primer análisis se guarda aquí. También puedes importar un respaldo."
+    : sorted.length + " de " + reports.length + " reportes");
+  savedReports.replaceChildren();
+  sorted.forEach((record) => {
+    const row = document.createElement("div");
+    row.className = "saved-report-row";
     const button = document.createElement("button");
     button.type = "button";
     button.className = "saved-report-button";
     const opponent = record.analysis.opponent_pitcher
       ? " vs " + record.analysis.opponent_pitcher.name
       : "";
-    button.textContent = record.analysis.player.name + opponent + " · " +
-      (record.analysis.window.games_requested || "—") + " juegos · " + savedDateLabel(record.saved_at);
+    const title = record.analysis.player.name + opponent;
+    appendText(button, "strong", "saved-report-title", title);
+    appendText(button, "small", "saved-report-meta", [
+      reportGameLabel(reportGame(record)),
+      (record.analysis.window.games_requested || "—") + " juegos de forma",
+      "Guardado " + savedDateLabel(record.saved_at),
+    ].join(" · "));
     button.addEventListener("click", () => showSavedReport(record.analysis));
-    savedReports.appendChild(button);
+    const pin = document.createElement("button");
+    pin.type = "button";
+    pin.className = "saved-report-pin";
+    pin.dataset.reportPin = record.id;
+    pin.textContent = record.pinned ? "Fijado" : "Fijar";
+    pin.setAttribute("aria-label", "Fijar reporte de " + title);
+    pin.setAttribute("aria-pressed", String(record.pinned === true));
+    pin.addEventListener("click", () => void toggleReportPin(record.id));
+    row.append(button, pin);
+    savedReports.appendChild(row);
+    if (focusId === record.id) pin.focus({ preventScroll: true });
   });
 }
 
-async function saveAnalysisLocally(analysis) {
+async function toggleReportPin(id) {
   await localDataReady;
-  const identity = reportIdentity(analysis);
-  const reports = savedReportsList().filter(
-    (record) => !(
-      record.id === identity
-    ),
-  );
-  savedReportsCache = [{ id: identity, saved_at: new Date().toISOString(), analysis }]
-    .concat(reports)
-    .slice(0, 8);
-  let persisted = true;
+  let pinned;
   try {
-    persisted = await writeReports();
+    await updateSavedReports((reports) => {
+      const record = reports.get(id);
+      if (!record) return;
+      pinned = !record.pinned;
+      reports.set(id, { ...record, pinned });
+    });
+    setText("notebook-status", pinned === undefined ? "El reporte ya no está en la libreta."
+      : pinned ? "Reporte fijado." : "Reporte desfijado.");
   } catch (error) {
-    persisted = false;
+    setText("notebook-status", "No se pudo guardar el cambio en este navegador.");
   }
-  renderSavedReports();
-  return persisted;
+}
+
+async function saveAnalysisLocally(analysis, shouldSave = () => true) {
+  await localDataReady;
+  if (!shouldSave()) return false;
+  const identity = reportIdentity(analysis);
+  let saved = false;
+  const update = (reports) => {
+    if (!shouldSave()) return;
+    reports.set(identity, {
+      id: identity,
+      saved_at: new Date().toISOString(),
+      pinned: reports.get(identity)?.pinned === true,
+      analysis,
+    });
+    saved = true;
+  };
+  try {
+    await updateSavedReports(update);
+    return saved;
+  } catch (error) {
+    if (!shouldSave()) return false;
+    const session = new Map(savedReportsCache.map((record) => [record.id, record]));
+    update(session);
+    savedReportsCache = newestReports(session.values());
+    renderSavedReports();
+    return false;
+  }
 }
 
 function reportSourceDate(analysis) {
@@ -992,8 +1097,9 @@ function reportSourceDate(analysis) {
 }
 
 function showSavedReport(analysis, scroll = true) {
-  if (validationController) validationController.abort();
-  validationController = null;
+  // An explicit selection takes priority. Automatic restoration must wait for the active request.
+  if (!scroll && analysisController) return;
+  cancelPendingReportWork();
   latestAnalysis = analysis;
   renderAnalysis(analysis);
   message(
@@ -1052,8 +1158,10 @@ async function searchPitchers(query) {
 }
 
 queryInput.addEventListener("input", () => {
+  cancelPendingReportWork();
   selectedPlayer = null;
   selectedGameForAnalysis = null;
+  selectedPlayerSide = null;
   form.classList.remove("game-mode");
   if (pitcherField) pitcherField.hidden = false;
   analyzeButton.disabled = true;
@@ -1099,6 +1207,7 @@ queryInput.addEventListener("keydown", (event) => {
 });
 
 pitcherQueryInput.addEventListener("input", () => {
+  cancelPendingReportWork();
   selectedPitcher = null;
   updateAnalyzeLabel();
   if (pitcherSearchController) pitcherSearchController.abort();
@@ -1149,6 +1258,24 @@ document.addEventListener("click", (event) => {
   }
 });
 
+byId("games-select").addEventListener("change", cancelPendingReportWork);
+byId("window-select").addEventListener("change", cancelPendingReportWork);
+byId("backtest-max-games").addEventListener("change", cancelHistoricalValidation);
+
+function requestedReportIdentity(request) {
+  const opponentSide = selectedPlayerSide === "away" ? "home" : "away";
+  // A game request leaves the pitcher to MLB. Match the probable rival shown at submission.
+  const pitcherId = request.game_id
+    ? selectedGameContext?.game?.[opponentSide]?.probable_pitcher?.id
+    : request.opponent_pitcher_id;
+  return reportIdentity({
+    player: { id: request.player_id },
+    opponent_pitcher: { id: pitcherId },
+    game_context: { game: { id: request.game_id } },
+    window: { games_requested: request.games, lookback_days: request.lookback_days },
+  });
+}
+
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (!selectedPlayer) {
@@ -1171,41 +1298,49 @@ form.addEventListener("submit", async (event) => {
     return;
   }
 
-  const player = { ...selectedPlayer };
-  const pitcher = selectedPitcher ? { ...selectedPitcher } : null;
-  const gameId = selectedGameForAnalysis;
-  if (validationController) validationController.abort();
+  const request = {
+    player_id: selectedPlayer.id,
+    player_name: selectedPlayer.name,
+    opponent_pitcher_id: selectedPitcher?.id || null,
+    opponent_pitcher_name: selectedPitcher?.name || null,
+    game_id: selectedGameForAnalysis || null,
+    games: Number(byId("games-select").value),
+    lookback_days: Number(byId("window-select").value),
+  };
+  const reportId = requestedReportIdentity(request);
+  cancelPendingReportWork();
+  const controller = new AbortController();
+  analysisController = controller;
+  const isCurrent = () => analysisController === controller;
   analyzeButton.disabled = true;
   analyzeButton.classList.add("is-loading");
-  analyzeButton.querySelector("span").textContent = gameId
+  analyzeButton.querySelector("span").textContent = request.game_id
     ? "Proyectando juego"
     : "Analizando Statcast";
   updateSearchMessage("");
   message(
-    gameId
+    request.game_id
       ? "Consultando alineación, pitcher probable e historial disponible antes del juego…"
       : "Descargando el historial Statcast y ajustando forma, contacto y matchup…",
     "loading",
   );
 
+  let canUseSavedReport = true;
   try {
     const response = await fetch("/api/analyze", {
       method: "POST",
+      signal: controller.signal,
       headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({
-        player_id: player.id,
-        player_name: player.name,
-        opponent_pitcher_id: pitcher ? pitcher.id : null,
-        opponent_pitcher_name: pitcher ? pitcher.name : null,
-        game_id: gameId || null,
-        games: Number(byId("games-select").value),
-        lookback_days: Number(byId("window-select").value),
-      }),
+      body: JSON.stringify(request),
     });
+    canUseSavedReport = response.status >= 500;
     const payload = await response.json();
+    if (!isCurrent()) return;
     if (!response.ok) throw new Error(payload.detail || "No se pudo completar el análisis.");
+    const savedLocally = await saveAnalysisLocally(payload, isCurrent);
+    if (!isCurrent()) return;
+    cancelHistoricalValidation();
     latestAnalysis = payload;
-    const savedLocally = await saveAnalysisLocally(payload);
     renderAnalysis(payload);
     message(
       savedLocally
@@ -1229,13 +1364,10 @@ form.addEventListener("submit", async (event) => {
     }
     dashboard.scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (error) {
-    const cached = savedReportsList().find(
-      (record) => Number(record.analysis.player.id) === Number(player.id) &&
-        Number(record.analysis.opponent_pitcher && record.analysis.opponent_pitcher.id || 0) ===
-          Number(pitcher && pitcher.id || 0) &&
-        Number(record.analysis.game_context && record.analysis.game_context.game &&
-          record.analysis.game_context.game.id || 0) === Number(gameId || 0),
-    );
+    if (!isCurrent() || error.name === "AbortError") return;
+    if (canUseSavedReport) await localDataReady;
+    if (!isCurrent()) return;
+    const cached = canUseSavedReport && savedReportsList().find((record) => record.id === reportId);
     if (cached) {
       showSavedReport(cached.analysis);
     } else {
@@ -1247,9 +1379,10 @@ form.addEventListener("submit", async (event) => {
       );
     }
   } finally {
-    analyzeButton.disabled = !selectedPlayer;
-    analyzeButton.classList.remove("is-loading");
-    updateAnalyzeLabel();
+    if (isCurrent()) {
+      analysisController = null;
+      resetAnalyzeButton();
+    }
   }
 });
 
@@ -1635,7 +1768,7 @@ function renderAnalysis(data) {
   renderSeasons(data.season_trend || []);
   renderHitDistribution(projection, explanation);
   renderQuality(data.data_quality, explanation);
-  renderAnalysisGameContext(data.game_context, data.matchup);
+  renderAnalysisGameContext(data.game_context, data.game_context?.matchup ?? data.matchup);
   updateFavoriteButton(player);
 
   validationButton.disabled = false;
@@ -1643,6 +1776,7 @@ function renderAnalysis(data) {
   renderTrend(data.trend);
   renderRecentGames(data.trend);
   renderValidation(data.validation || null);
+  window.dispatchEvent(new CustomEvent("diamondiq:analysis-result", { detail: { analysis: data } }));
 }
 
 function renderDrivers(drivers) {
@@ -1765,16 +1899,38 @@ function renderCohortEvaluation(report) {
   const generatedLabel = generated && !Number.isNaN(generated.getTime())
     ? generated.toLocaleString("es-MX")
     : "fecha no indicada";
+  const seasonLabel = report.holdout_season
+    ? " · prueba reservada " + report.holdout_season + (seasons.length ? " · historial " + seasons.join(", ") : "")
+    : " · " + seasons.length + " temporadas" + (seasons.length ? " (" + seasons.join(", ") + ")" : "");
   setText(
     "cohort-report-overview",
     number(report.predictions, 0) + " proyecciones · " + number(report.players, 0) +
-      " jugadores · " + seasons.length + " temporadas" +
-      (seasons.length ? " (" + seasons.join(", ") + ")" : "") +
-      " · generado " + generatedLabel,
+      " jugadores" + seasonLabel + " · generado " + generatedLabel,
   );
 
   const metrics = report.metrics || {};
   const baseline = report.baseline || {};
+  const buckets = metrics.hit_buckets;
+  const calibration = buckets?.calibration_by_hit_bucket;
+  byId("cohort-hit-buckets").hidden = !calibration;
+  if (calibration) {
+    const rows = byId("cohort-hit-bucket-rows");
+    rows.replaceChildren();
+    for (const label of ["0", "1", "2+"]) {
+      const bucket = calibration[label];
+      if (!bucket) continue;
+      const row = document.createElement("tr");
+      const name = appendText(row, "th", "", label);
+      name.scope = "row";
+      appendText(row, "td", "", percent(bucket.predicted));
+      appendText(row, "td", "", percent(bucket.observed));
+      rows.appendChild(row);
+    }
+    const reference = baseline.hit_buckets?.ranked_probability_score;
+    setText("cohort-distribution-error", "Error de probabilidad de 0, 1 o 2+ hits (RPS): " +
+      number(buckets.ranked_probability_score, 3) + (Number.isFinite(reference) ?
+        " · referencia " + number(reference, 3) : "") + " · menor es mejor.");
+  }
   setText("cohort-mae", number(metrics.mean_absolute_error_hits, 2) + " H");
   setText("cohort-brier", number(metrics.brier_score_one_or_more_hits, 3));
   setText("cohort-coverage", percent(metrics.predictive_interval_coverage));
@@ -1855,9 +2011,10 @@ function waitForSignal(milliseconds, signal) {
 }
 
 async function runHistoricalValidation(analysis) {
-  if (validationController) validationController.abort();
+  cancelHistoricalValidation();
   validationController = new AbortController();
   const controller = validationController;
+  const isCurrent = () => validationController === controller && latestAnalysis === analysis;
   validationButton.disabled = true;
   validationButton.textContent = "Midiendo juegos no usados…";
   renderValidation(null, "Comparando el modelo con juegos posteriores que no usó para estimar…");
@@ -1876,11 +2033,11 @@ async function runHistoricalValidation(analysis) {
       }),
     });
     let job = await response.json();
+    if (!isCurrent()) return;
     if (!response.ok) throw new Error(job.detail || "No se pudo iniciar la evaluación histórica.");
     if (!job.id) throw new Error("La evaluación no devolvió un identificador de tarea.");
 
     while (job.status !== "complete" && job.status !== "error") {
-      if (controller.signal.aborted) return;
       renderValidation(
         null,
         job.status === "queued"
@@ -1896,6 +2053,7 @@ async function runHistoricalValidation(analysis) {
         headers: { Accept: "application/json" },
       });
       job = await statusResponse.json();
+      if (!isCurrent()) return;
       if (!statusResponse.ok) {
         throw new Error(job.detail || "No se pudo consultar el avance de la evaluación.");
       }
@@ -1905,9 +2063,11 @@ async function runHistoricalValidation(analysis) {
     }
     const payload = job.result;
     if (!payload) throw new Error("La evaluación terminó sin resultados.");
-    if (latestAnalysis !== analysis) return;
+    await localDataReady;
+    if (!isCurrent()) return;
     analysis.validation = payload;
-    const savedLocally = await saveAnalysisLocally(analysis);
+    const savedLocally = await saveAnalysisLocally(analysis, isCurrent);
+    if (!isCurrent()) return;
     renderValidation(
       payload,
       savedLocally
@@ -1915,12 +2075,12 @@ async function runHistoricalValidation(analysis) {
         : "Evaluación lista en esta sesión, pero el navegador no pudo guardar el reporte actualizado.",
     );
   } catch (error) {
-    if (error.name === "AbortError" || latestAnalysis !== analysis) return;
+    if (error.name === "AbortError" || !isCurrent()) return;
     renderValidation(null, error.message || "No se pudo completar la validación histórica.");
   } finally {
-    if (latestAnalysis === analysis) {
-      validationButton.disabled = false;
-      validationButton.textContent = "Medir precisión histórica";
+    if (isCurrent()) {
+      validationController = null;
+      resetValidationButton();
     }
   }
 }
@@ -2111,29 +2271,54 @@ byId("copy-report").addEventListener("click", async () => {
   }
 });
 
-byId("clear-saved-reports").addEventListener("click", async () => {
+reportGameFilter.addEventListener("change", renderSavedReports);
+
+exportReportsButton.addEventListener("click", async () => {
   await localDataReady;
-  savedReportsCache = [];
+  if (!savedReportsCache.length) return;
+  const backup = new Blob([encodeReportBackup(savedReportsCache)], { type: "application/json" });
+  const url = URL.createObjectURL(backup);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "diamond-iq-reportes-" + localDateString(new Date()) + ".json";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 5000);
+  setText("notebook-status", "Respaldo descargado. Puedes importarlo en otro navegador.");
+});
+
+reportBackupInput.addEventListener("change", async () => {
+  const file = reportBackupInput.files[0];
+  reportBackupInput.value = "";
+  if (!file) return;
+  reportBackupInput.disabled = true;
+  setText("notebook-status", "Revisando el respaldo…");
   try {
-    const database = await openLocalDatabase();
-    if (database) {
-      const transaction = database.transaction("reports", "readwrite");
-      const complete = transactionResult(transaction);
-      transaction.objectStore("reports").clear();
-      await complete;
-    }
+    const incoming = decodeReportBackup(await file.text());
+    await localDataReady;
+    await updateSavedReports((reports) => {
+      incoming.forEach((record) => reports.set(record.id, mergeReport(reports.get(record.id), record)));
+    });
+    setText("notebook-status", incoming.length
+      ? "Respaldo importado. Los reportes existentes se conservaron."
+      : "El respaldo no contiene reportes.");
   } catch (error) {
-    message("No se pudo borrar el historial local.", "error");
-    return;
+    setText("notebook-status", error.message || "No se pudo importar el respaldo.");
+  } finally {
+    reportBackupInput.disabled = false;
   }
+});
+
+clearReportsButton.addEventListener("click", async () => {
+  await localDataReady;
+  if (!window.confirm("¿Borrar todos los reportes guardados en este navegador, incluidos los fijados?")) return;
   try {
-    localStorage.removeItem(savedReportsKey);
-    localStorage.setItem(legacyMigrationKey, "complete");
+    await updateSavedReports((reports) => reports.clear());
+    setText("notebook-status", "Historial local borrado.");
   } catch (error) {
-    // Continue to clear the visible history even when storage is unavailable.
+    setText("notebook-status", "No se pudo borrar el historial local.");
   }
-  renderSavedReports();
-  message("Historial local borrado.", "success");
 });
 
 byId("favorite-player").addEventListener("click", () => {
@@ -2163,11 +2348,28 @@ function addInstallStep(title, description) {
 
 function showInstallHelp() {
   installInstructions.replaceChildren();
-  addInstallStep("iPhone o iPad · Safari", "Abre Compartir y elige Añadir a pantalla de inicio.");
-  addInstallStep("Android · Chrome", "Abre el menú ⋮ y toca Instalar aplicación o Añadir a pantalla de inicio.");
-  addInstallStep("Computadora · Chrome o Edge", "Usa el icono Instalar de la barra de direcciones o el menú del navegador.");
+  const onAppleMobile = /iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const onAndroid = /Android/i.test(navigator.userAgent);
+  let requirement = "Al terminar de cargar la app, los reportes guardados pueden abrirse sin conexión. Para consultas nuevas, el servidor local debe seguir activo y tener acceso a las fuentes.";
+  if (!window.isSecureContext) {
+    addInstallStep("Abrir desde tu red local", "Puedes seguir usando esta dirección HTTP en el navegador mientras el servidor esté activo.");
+    addInstallStep("Habilitar instalación y uso sin conexión", "Abre Diamond IQ con una dirección HTTPS válida para este dispositivo. En la computadora que ejecuta el servidor también sirve http://localhost:8000.");
+    requirement = "La dirección HTTP de tu red local no habilita el modo sin conexión de la PWA.";
+  } else if (!("serviceWorker" in navigator)) {
+    addInstallStep("Usar en el navegador", "Puedes seguir usando Diamond IQ mientras el servidor esté activo.");
+    requirement = "Este navegador no permite guardar la app sin conexión. Prueba con Safari, Chrome o Edge actualizado.";
+  } else if (onAppleMobile) {
+    addInstallStep("iPhone o iPad · Safari", "En Safari abre Compartir, toca Añadir a pantalla de inicio y confirma con Añadir.");
+  } else if (onAndroid) {
+    addInstallStep("Android · Chrome", "Abre el menú ⋮ y toca Instalar aplicación o Añadir a pantalla de inicio.");
+  } else {
+    addInstallStep("Chrome o Edge", "Usa el icono Instalar de la barra de direcciones o el menú del navegador.");
+    addInstallStep("Safari en Mac", "Si está disponible en tu versión de Safari, elige Archivo y Añadir al Dock.");
+  }
+  setText("install-requirement", requirement);
   if (typeof installDialog.showModal === "function") installDialog.showModal();
-  else message("Usa el menú de tu navegador y elige Añadir a pantalla de inicio.", "success");
+  else message(requirement, "success");
 }
 
 installButton.addEventListener("click", async () => {
@@ -2198,6 +2400,7 @@ window.addEventListener("appinstalled", () => {
 
 const isInstalled = window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
 installButton.hidden = isInstalled;
+if (!window.isSecureContext) installButton.textContent = "Cómo instalar";
 
 if ("serviceWorker" in navigator && window.isSecureContext) {
   navigator.serviceWorker.register("/service-worker.js", { scope: "/" }).catch(() => {
@@ -2216,4 +2419,5 @@ byId("load-games").addEventListener("click", () => void loadSchedule());
 byId("clear-game-context").addEventListener("click", clearGameContext);
 
 localDataReady = initializeLocalData();
+initMatchupTools();
 void loadSchedule();

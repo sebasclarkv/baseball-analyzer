@@ -1,4 +1,4 @@
-# ⚾ Diamond IQ · Baseball Analyzer 2.1
+# ⚾ Diamond IQ · Baseball Analyzer 2.2
 
 **El partido, el duelo y una proyección que puedes entender.** Explora la jornada MLB, elige un bateador de la alineación publicada y consulta sus probabilidades de terminar con **0, 1 o 2+ hits**. También puedes analizar su perfil sin seleccionar un partido.
 
@@ -10,9 +10,19 @@ Vista de la interfaz con **datos sintéticos de prueba**, no un pronóstico real
 
 ![Resumen de Diamond IQ con datos de prueba](docs/diamond-iq-1440.png)
 
-[Ver la vista móvil](docs/diamond-iq-390.png)
+[Ver el análisis en móvil](docs/diamond-iq-390.png) · [Ver el marcador móvil con un juego real ya finalizado](docs/marcador-390.png)
 
-## Qué cambia en 2.1
+## Qué cambia en 2.2
+
+- **Medición por temporadas.** Evalúa una cohorte reproducible y reserva la última temporada para medir la distribución de 0, 1 y 2+ hits. Statcast distingue los juegos de temporada regular, playoffs y pretemporada.
+- **Pronóstico frente al resultado.** Cruza los pronósticos guardados antes del primer lanzamiento con los resultados finales de MLB. Compara el error con y sin orden al bate, abridor o bullpen en los mismos juegos.
+- **Tarjeta de anotación.** Consulta el marcador por entradas y compara a dos bateadores del mismo equipo. Prueba un abridor alternativo del roster rival. La simulación lleva su propia etiqueta y los pronósticos de la evaluación se conservan aparte.
+- **Libreta local.** Filtra reportes por partido, fija los que quieras conservar y exporta una copia JSON que puedes importar en otro navegador. Si cambias la selección durante una consulta, el resultado anterior deja de actualizar la pantalla.
+- **Menos espera en consultas simultáneas.** DuckDB lee la ventana de fechas solicitada y los historiales de distintos jugadores pueden actualizarse en paralelo. GitHub Actions comprueba el backend, TypeScript y los flujos de navegador.
+
+En la temporada reservada de 2025, el perfil del bateador obtuvo **2.62% menos error de probabilidad (RPS)** que una referencia de tasa reciente en 1,094 predicciones de 35 jugadores. [Resultados y cómo reproducirlos](docs/evaluacion.md#resultado-de-la-temporada-reservada-2025)
+
+## Qué incluye Diamond IQ
 
 - **Jornada MLB:** fecha, equipos, estadio y pitchers probables; alineación publicada o pendiente, sin confundir roster con titulares.
 - **Búsqueda flexible:** `Aaron Judge`, `Judge Aaron` o `Judge`; ignora mayúsculas y acentos, y sugiere coincidencias ante errores pequeños. Siempre debes seleccionar al jugador correcto.
@@ -23,7 +33,7 @@ Vista de la interfaz con **datos sintéticos de prueba**, no un pronóstico real
 - **Evaluación ampliada:** hasta 500 juegos por jugador desde la web, en segundo plano; evaluación multijugador por consola y comparación experimental con CatBoost.
 - **Uso diario:** favoritos y reportes en IndexedDB; migración de los reportes del navegador de la versión anterior; lanzador para Mac.
 
-La versión incorpora nuevos métodos y herramientas de evaluación. **No afirma una mejora medida de precisión:** eso requiere ejecutar la evaluación con datos reales y revisar sus resultados.
+La guía de evaluación explica las medidas de precisión y cómo reproducirlas. [Evaluación histórica y seguimiento de pronósticos](docs/evaluacion.md)
 
 ## Empezar en Mac
 
@@ -71,7 +81,7 @@ Si Git informa cambios locales, consérvalos antes de actualizar. Para cambiar p
 4. **Ajusta el historial si lo necesitas.** Los juegos recientes describen la forma; el historial largo estabiliza la estimación. Más años no hacen que cada juego antiguo tenga el mismo peso que uno reciente.
 5. **Inicia el análisis.** La primera consulta puede tardar al descargar el historial. Las siguientes reutilizan datos locales y descargan los periodos que falten.
 6. **Lee el resumen y sus condiciones.** Revisa 0, 1 y 2+ hits, rango de resultados, oportunidades contra abridor/relevistas y datos pendientes. Puedes abrir los detalles técnicos y ejecutar la evaluación histórica.
-7. **Guarda o recupera el reporte.** Los reportes y favoritos pertenecen a ese navegador; no se sincronizan entre dispositivos. Un reporte guardado conserva su fecha y puede estar desactualizado.
+7. **Abre la libreta.** Fija reportes, filtra por partido o exporta un respaldo local. Puedes importarlo desde otro dispositivo. Un reporte conserva su fecha y las opciones usadas para calcularlo.
 
 **Sin partido:** busca por nombre y apellido —en cualquiera de los dos órdenes— o por apellido, y selecciona una coincidencia. Por ejemplo, `Aaron Judge`, `Judge Aaron` o `Judge`. Las sugerencias aproximadas no corrigen automáticamente la identidad; comprueba el nombre de la lista. El perfil resultante no supone una alineación confirmada.
 
@@ -147,10 +157,11 @@ La PWA puede abrir la interfaz y reportes ya guardados sin conexión cuando su c
 
 ## Evaluación y desarrollo
 
-Consulta [la guía de evaluación](docs/evaluacion.md) para descargar historia, evaluar muchos jugadores y comparar un candidato CatBoost. Los resultados locales de esa evaluación se consultan también en `/api/evaluation`.
+Consulta [la guía de evaluación](docs/evaluacion.md) para reproducir la cohorte, cruzar pronósticos con resultados de MLB y comparar el candidato CatBoost. Los reportes locales se sirven en `/api/evaluation` y `/api/evaluation/prospective`.
 
 ```sh
 .venv/bin/python -m pip install -r requirements-dev.txt
+.venv/bin/python -m playwright install chromium webkit
 .venv/bin/python -m pytest tests -q
 .venv/bin/python server.py --reload
 ```

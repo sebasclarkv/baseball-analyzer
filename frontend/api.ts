@@ -1,13 +1,13 @@
 /** Typed public-source boundaries. Compiled JS is committed; Python users need no Node. */
 export interface Person { id: number; name: string }
 export interface Team { id: number; name: string; abbreviation?: string; score?: number | null; probable_pitcher?: Person | null }
-export interface Game { id: number; start_time?: string | null; status: string; status_code: string; venue: {id?: number; name?: string}; away: Team; home: Team }
+export interface Game { id: number; start_time?: string | null; official_date?: string; game_type?: string | null; status: string; status_code: string; venue: {id?: number; name?: string}; away: Team; home: Team }
 export interface Source { name: string; fetched_at: string; stale: boolean }
 export interface Schedule { date: string; games: Game[]; source: Source; warnings: string[] }
 export interface LineupPlayer extends Person { position?: string; batting_order?: number; is_pitcher?: boolean }
 export interface Lineup { id: number; name: string; lineup_status: 'confirmed' | 'pending'; lineup: LineupPlayer[]; roster: LineupPlayer[] }
 export interface Weather { status: 'available' | 'unavailable' | 'not_applicable'; temperature_c?: number | null; wind_kmh?: number | null; wind_direction?: number | null; roof: string; applied_to_projection: false; message?: string; source?: Source }
-export interface GameContext { game: Game; teams: {home: Lineup; away: Lineup}; weather: Weather; source: Source; warnings: string[]; as_of: string }
+export interface GameContext { game: Game; teams: {home: Lineup; away: Lineup}; innings: {number: number; away: number | null; home: number | null}[]; weather: Weather; source: Source; warnings: string[]; as_of: string }
 export interface HitDistribution { probability_zero_hits: number; probability_exactly_one_hit: number; probability_two_or_more_hits: number; predictive_interval_hits: {low: number; high: number; level: number; calibrated: boolean} }
 
 function record(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === 'object' && !Array.isArray(value); }

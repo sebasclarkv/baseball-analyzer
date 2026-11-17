@@ -1,0 +1,344 @@
+.matchup-tools {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.scorecard-panel,
+.matchup-tool-panel {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid rgba(222, 232, 212, 0.13);
+  border-radius: 3px;
+  background:
+    linear-gradient(90deg, transparent 0 9px, rgba(226, 232, 211, 0.035) 9px 10px, transparent 10px),
+    rgba(4, 17, 25, 0.42);
+}
+
+.scorecard-panel {
+  border-top: 2px solid rgba(229, 189, 104, 0.7);
+}
+
+.matchup-tool-panel {
+  border-top: 2px solid rgba(125, 175, 120, 0.58);
+}
+
+.scenario-panel {
+  border-top-color: rgba(167, 155, 224, 0.72);
+}
+
+.matchup-tools-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.matchup-tools-heading h3 {
+  margin: 2px 0 0;
+  color: #eee9d8;
+  font-family: var(--display);
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.scorecard-status,
+.tool-stamp,
+.scenario-stamp {
+  color: #cdb875;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-align: right;
+  text-transform: uppercase;
+}
+
+.scenario-stamp {
+  color: #c5b9ef;
+}
+
+.tool-note,
+.tool-status {
+  margin: 8px 0 0;
+  color: #a9b8af;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.tool-status:empty {
+  display: none;
+}
+
+.scorecard-scroll {
+  width: 100%;
+  margin-top: 10px;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+}
+
+.inning-scorecard {
+  width: 100%;
+  min-width: 300px;
+  border-collapse: collapse;
+  color: #e5e5d8;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.inning-scorecard th,
+.inning-scorecard td {
+  min-width: 32px;
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(222, 232, 212, 0.11);
+  font-size: 10px;
+}
+
+.inning-scorecard thead th {
+  color: #91a59b;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.inning-scorecard tbody th {
+  min-width: 108px;
+  color: #e8e4d4;
+  font-size: 9px;
+  font-weight: 700;
+  text-align: left;
+}
+
+.inning-scorecard .scorecard-total {
+  position: sticky;
+  right: 0;
+  border-left: 1px solid rgba(229, 189, 104, 0.24);
+  color: var(--gold);
+  background: #0c1f2b;
+  box-shadow: -7px 0 8px rgba(3, 12, 18, 0.65);
+  font-family: var(--display);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.inning-scorecard .scorecard-empty {
+  color: #77877f;
+}
+
+.tool-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) minmax(150px, auto);
+  align-items: end;
+  gap: 9px;
+  margin-top: 12px;
+}
+
+.tool-controls label {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  color: #c3cdc3;
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.tool-controls select {
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  padding: 0 9px;
+  border: 1px solid rgba(220, 229, 210, 0.18);
+  border-radius: 3px;
+  color: var(--chalk);
+  background: #0b1c28;
+  color-scheme: dark;
+  font-size: 11px;
+}
+
+.tool-controls button {
+  min-height: 38px;
+}
+
+.tool-controls button:disabled {
+  cursor: not-allowed;
+  opacity: 0.47;
+}
+
+.compare-results {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.comparison-card,
+.scenario-summary {
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid rgba(222, 232, 212, 0.12);
+  background: rgba(13, 30, 42, 0.73);
+}
+
+.comparison-card h4,
+.scenario-summary h4 {
+  margin: 0 0 8px;
+  overflow-wrap: anywhere;
+  color: #f0ead9;
+  font-family: var(--display);
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.comparison-pitcher,
+.comparison-quality,
+.scenario-meta,
+.scenario-bullpen-note {
+  margin: 5px 0 0;
+  color: #9cafa4;
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.comparison-primary,
+.scenario-primary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 7px 0;
+  border-block: 1px solid rgba(222, 232, 212, 0.1);
+}
+
+.comparison-primary span,
+.scenario-primary span {
+  color: #9fb0a6;
+  font-size: 9px;
+}
+
+.comparison-primary strong,
+.scenario-primary strong {
+  color: var(--gold);
+  font-family: var(--display);
+  font-size: 23px;
+  font-weight: 500;
+}
+
+.comparison-probabilities {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  margin-top: 7px;
+}
+
+.comparison-probabilities > div {
+  display: grid;
+  gap: 2px;
+  padding: 5px 4px;
+  background: rgba(3, 13, 20, 0.5);
+  text-align: center;
+}
+
+.comparison-probabilities span {
+  color: #91a39a;
+  font-size: 8px;
+}
+
+.comparison-probabilities strong {
+  color: #dbe4d9;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.scenario-results {
+  display: grid;
+  gap: 9px;
+  margin-top: 12px;
+}
+
+.scenario-summary {
+  border-left: 2px solid rgba(167, 155, 224, 0.66);
+}
+
+.scenario-delta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.scenario-delta > div {
+  display: grid;
+  gap: 4px;
+  padding: 9px;
+  border: 1px solid rgba(167, 155, 224, 0.18);
+  background: rgba(71, 65, 108, 0.13);
+}
+
+.scenario-delta span {
+  color: #a9a2cd;
+  font-size: 8px;
+}
+
+.scenario-delta strong {
+  color: #e4def9;
+  font-family: var(--display);
+  font-size: 16px;
+}
+
+.official-analysis-button {
+  min-height: 36px;
+  margin-top: 10px;
+  padding: 0 12px;
+  border: 1px solid rgba(229, 189, 104, 0.35);
+  border-radius: 3px;
+  color: var(--gold);
+  background: rgba(229, 189, 104, 0.08);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.official-analysis-button:hover {
+  background: rgba(229, 189, 104, 0.16);
+}
+
+.official-analysis-button:focus-visible {
+  outline: 3px solid var(--gold);
+  outline-offset: 3px;
+}
+
+@media (max-width: 620px) {
+  .matchup-tools-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .scorecard-status,
+  .tool-stamp,
+  .scenario-stamp {
+    text-align: left;
+  }
+
+  .tool-controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tool-controls button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .compare-results {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .matchup-tools *,
+  .matchup-tools *::before,
+  .matchup-tools *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

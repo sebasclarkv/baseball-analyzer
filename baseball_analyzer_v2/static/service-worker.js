@@ -1,9 +1,13 @@
-const CACHE_NAME = "diamond-iq-shell-v4";
+const CACHE_NAME = "diamond-iq-shell-v5";
 const SHELL = [
   "/",
   "/static/styles.css",
   "/static/app.js",
   "/static/api.js",
+  "/static/report-notebook.js",
+  "/static/prospective.js",
+  "/static/matchup-tools.css",
+  "/static/matchup-tools.js",
   "/static/manifest.webmanifest",
   "/static/icon.svg",
   "/static/apple-touch-icon.png",
@@ -21,9 +25,8 @@ self.addEventListener("activate", (event) => {
     caches.keys().then((keys) => Promise.all(
       keys.filter((key) => key.startsWith("diamond-iq-") && key !== CACHE_NAME)
         .map((key) => caches.delete(key)),
-    )),
+    )).then(() => self.clients.claim()),
   );
-  self.clients.claim();
 });
 
 self.addEventListener("fetch", (event) => {

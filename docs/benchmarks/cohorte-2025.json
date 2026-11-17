@@ -1,0 +1,299 @@
+{
+  "schema_version": 1,
+  "source": "MLB Stats API / regular-season batting totals",
+  "selection_season": 2024,
+  "holdout_season": 2025,
+  "seed": 42,
+  "population_by_group": {
+    "regular_volume": 126,
+    "debut_season": 59,
+    "low_pa": 119
+  },
+  "selection_rules": {
+    "regular_volume": "500+ PA, debut anterior",
+    "debut_season": "50+ PA, primera temporada MLB",
+    "low_pa": "50 a 199 PA, debut anterior"
+  },
+  "players": [
+    {
+      "id": 455117,
+      "name": "Martín Maldonado",
+      "selection_plate_appearances": 147,
+      "debut_year": 2011,
+      "group": "low_pa"
+    },
+    {
+      "id": 502671,
+      "name": "Paul Goldschmidt",
+      "selection_plate_appearances": 654,
+      "debut_year": 2011,
+      "group": "regular_volume"
+    },
+    {
+      "id": 553993,
+      "name": "Eugenio Suárez",
+      "selection_plate_appearances": 640,
+      "debut_year": 2014,
+      "group": "regular_volume"
+    },
+    {
+      "id": 572233,
+      "name": "Christian Walker",
+      "selection_plate_appearances": 552,
+      "debut_year": 2014,
+      "group": "regular_volume"
+    },
+    {
+      "id": 592206,
+      "name": "Nick Castellanos",
+      "selection_plate_appearances": 659,
+      "debut_year": 2013,
+      "group": "regular_volume"
+    },
+    {
+      "id": 595777,
+      "name": "Jurickson Profar",
+      "selection_plate_appearances": 668,
+      "debut_year": 2012,
+      "group": "regular_volume"
+    },
+    {
+      "id": 596117,
+      "name": "Garrett Stubbs",
+      "selection_plate_appearances": 187,
+      "debut_year": 2019,
+      "group": "low_pa"
+    },
+    {
+      "id": 608369,
+      "name": "Corey Seager",
+      "selection_plate_appearances": 533,
+      "debut_year": 2015,
+      "group": "regular_volume"
+    },
+    {
+      "id": 621311,
+      "name": "David Dahl",
+      "selection_plate_appearances": 62,
+      "debut_year": 2016,
+      "group": "low_pa"
+    },
+    {
+      "id": 621493,
+      "name": "Taylor Ward",
+      "selection_plate_appearances": 663,
+      "debut_year": 2018,
+      "group": "regular_volume"
+    },
+    {
+      "id": 624585,
+      "name": "Jorge Soler",
+      "selection_plate_appearances": 574,
+      "debut_year": 2014,
+      "group": "regular_volume"
+    },
+    {
+      "id": 641645,
+      "name": "Luis Guillorme",
+      "selection_plate_appearances": 187,
+      "debut_year": 2018,
+      "group": "low_pa"
+    },
+    {
+      "id": 656976,
+      "name": "Pavin Smith",
+      "selection_plate_appearances": 158,
+      "debut_year": 2020,
+      "group": "low_pa"
+    },
+    {
+      "id": 657061,
+      "name": "Cole Tucker",
+      "selection_plate_appearances": 57,
+      "debut_year": 2019,
+      "group": "low_pa"
+    },
+    {
+      "id": 663550,
+      "name": "Trey Cabbage",
+      "selection_plate_appearances": 91,
+      "debut_year": 2023,
+      "group": "low_pa"
+    },
+    {
+      "id": 665052,
+      "name": "Griffin Conine",
+      "selection_plate_appearances": 89,
+      "debut_year": 2024,
+      "group": "debut_season"
+    },
+    {
+      "id": 665161,
+      "name": "Jeremy Peña",
+      "selection_plate_appearances": 650,
+      "debut_year": 2022,
+      "group": "regular_volume"
+    },
+    {
+      "id": 665923,
+      "name": "Esteury Ruiz",
+      "selection_plate_appearances": 65,
+      "debut_year": 2022,
+      "group": "low_pa"
+    },
+    {
+      "id": 665926,
+      "name": "Andrés Giménez",
+      "selection_plate_appearances": 633,
+      "debut_year": 2020,
+      "group": "regular_volume"
+    },
+    {
+      "id": 665953,
+      "name": "Andrés Chaparro",
+      "selection_plate_appearances": 132,
+      "debut_year": 2024,
+      "group": "debut_season"
+    },
+    {
+      "id": 667452,
+      "name": "Corey Julks",
+      "selection_plate_appearances": 189,
+      "debut_year": 2023,
+      "group": "low_pa"
+    },
+    {
+      "id": 668709,
+      "name": "JJ Bleday",
+      "selection_plate_appearances": 642,
+      "debut_year": 2022,
+      "group": "regular_volume"
+    },
+    {
+      "id": 668853,
+      "name": "Austin Shenton",
+      "selection_plate_appearances": 50,
+      "debut_year": 2024,
+      "group": "debut_season"
+    },
+    {
+      "id": 669127,
+      "name": "Shea Langeliers",
+      "selection_plate_appearances": 534,
+      "debut_year": 2022,
+      "group": "regular_volume"
+    },
+    {
+      "id": 672356,
+      "name": "Gabriel Arias",
+      "selection_plate_appearances": 161,
+      "debut_year": 2022,
+      "group": "low_pa"
+    },
+    {
+      "id": 672580,
+      "name": "Maikel Garcia",
+      "selection_plate_appearances": 626,
+      "debut_year": 2022,
+      "group": "regular_volume"
+    },
+    {
+      "id": 676113,
+      "name": "Zach DeLoach",
+      "selection_plate_appearances": 75,
+      "debut_year": 2024,
+      "group": "debut_season"
+    },
+    {
+      "id": 676572,
+      "name": "Eric Wagaman",
+      "selection_plate_appearances": 74,
+      "debut_year": 2024,
+      "group": "debut_season"
+    },
+    {
+      "id": 677347,
+      "name": "Kyren Paris",
+      "selection_plate_appearances": 59,
+      "debut_year": 2023,
+      "group": "low_pa"
+    },
+    {
+      "id": 677870,
+      "name": "Leo Jiménez",
+      "selection_plate_appearances": 210,
+      "debut_year": 2024,
+      "group": "debut_season"
+    },
+    {
+      "id": 680118,
+      "name": "Dairon Blanco",
+      "selection_plate_appearances": 132,
+      "debut_year": 2022,
+      "group": "low_pa"
+    },
+    {
+      "id": 682868,
+      "name": "Bryan Ramos",
+      "selection_plate_appearances": 108,
+      "debut_year": 2024,
+      "group": "debut_season"
+    },
+    {
+      "id": 683002,
+      "name": "Gunnar Henderson",
+      "selection_plate_appearances": 719,
+      "debut_year": 2022,
+      "group": "regular_volume"
+    },
+    {
+      "id": 686452,
+      "name": "Drew Millas",
+      "selection_plate_appearances": 62,
+      "debut_year": 2023,
+      "group": "low_pa"
+    },
+    {
+      "id": 686780,
+      "name": "Pedro Pagés",
+      "selection_plate_appearances": 218,
+      "debut_year": 2024,
+      "group": "debut_season"
+    },
+    {
+      "id": 687363,
+      "name": "Victor Scott II",
+      "selection_plate_appearances": 155,
+      "debut_year": 2024,
+      "group": "debut_season"
+    },
+    {
+      "id": 690291,
+      "name": "Jace Jung",
+      "selection_plate_appearances": 94,
+      "debut_year": 2024,
+      "group": "debut_season"
+    },
+    {
+      "id": 693307,
+      "name": "Dillon Dingler",
+      "selection_plate_appearances": 87,
+      "debut_year": 2024,
+      "group": "debut_season"
+    },
+    {
+      "id": 694671,
+      "name": "Wyatt Langford",
+      "selection_plate_appearances": 557,
+      "debut_year": 2024,
+      "group": "debut_season"
+    },
+    {
+      "id": 702616,
+      "name": "Jackson Holliday",
+      "selection_plate_appearances": 208,
+      "debut_year": 2024,
+      "group": "debut_season"
+    }
+  ]
+}
