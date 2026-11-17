@@ -4,7 +4,7 @@
 
 Web adaptable a Mac, iPhone y Android, con servidor local, reportes guardados y PWA instalable. Sin cuenta ni claves de API. Las consultas nuevas requieren Internet y acceso a los proveedores públicos.
 
-[Empezar en Mac](#empezar-en-mac) · [Guía de uso](#del-partido-a-la-proyección) · [Cómo calcula](docs/modelo.md) · [Evaluación histórica](docs/evaluacion.md) · [Acceso móvil](#iphone-y-android) · [Autor](#autor)
+[Empezar en Mac](#empezar-en-mac) · [Guía de uso](#del-partido-a-la-proyección) · [Cómo calcula](docs/modelo.md) · [Evaluación histórica](docs/evaluacion.md) · [Comprobar conexiones](#comprobar-conexiones) · [Acceso móvil](#iphone-y-android) · [Autor](#autor)
 
 Vista de la interfaz con **datos sintéticos de prueba**, no un pronóstico real de MLB:
 
@@ -102,6 +102,35 @@ Los ajustes actuales y sus supuestos están documentados en [Cómo calcula el mo
 **Backend:** Python, FastAPI, pandas, NumPy, DuckDB y Parquet. **Interfaz:** HTML, CSS, JavaScript, cliente API tipado en TypeScript y PWA; el usuario final no necesita Node.js. **Investigación opcional:** CatBoost y scikit-learn en CPU, con calibración y cortes temporales. No se requiere un servicio de IA de pago.
 
 Si una fuente falla, se indican los datos ausentes o la antigüedad de la caché. Una caché parcial de Statcast no se anuncia como un historial completo. Retrosheet queda como fuente futura: esta versión no importa sus archivos ni mezcla épocas históricas con mediciones Statcast inexistentes.
+
+## Comprobar conexiones
+
+Después de instalar las dependencias, ejecuta desde la carpeta del proyecto:
+
+```sh
+.venv/bin/python scripts/check_connections.py
+```
+
+No necesitas iniciar el servidor. El diagnóstico consulta las fuentes por HTTPS y comprueba que sus respuestas funcionen con los adaptadores del analizador:
+
+- **MLB:** jornada histórica, contexto del partido, rosters e historial de oportunidades del equipo.
+- **Statcast:** descarga una semana de Aaron Judge mediante pybaseball, comprueba jugador y fechas, guarda en Parquet temporal y calcula la distribución de hits.
+- **Chadwick:** descarga el registro y verifica la búsqueda `Judge Aaron` con el buscador de la app.
+- **Open-Meteo:** obtiene temperatura y viento para mañana en las coordenadas de Yankee Stadium.
+
+Cada ejecución exige solicitudes de red: no acepta la caché de la app ni la de pybaseball como prueba de conexión. Conserva tus historiales y guarda el diagnóstico en **`.cache/connection-report.json`**, con hora UTC, proveedor, estado HTTP y duración. Ese archivo no se publica en GitHub. Una conexión válida no demuestra precisión predictiva.
+
+| Resultado | Qué significa y qué hacer |
+|---|---|
+| `passed` | Llegaron datos utilizables y pasó la comprobación del adaptador |
+| `blocked` | El proxy rechazó la conexión; revisa los dominios permitidos del entorno |
+| `failed` | Falló HTTP, el tiempo de espera, el formato o el procesamiento; consulta el motivo en el reporte |
+| `partial` | Hubo alguna solicitud fallida; no cuenta como validación completa |
+| `skipped` | Una comprobación previa falló; no se intentó la dependiente |
+
+El comando termina con código **0** solo si todas las comprobaciones pasan; en otro caso devuelve **1**. La muestra predeterminada abarca del 1 al 7 de julio de 2025. Puedes cambiarla por otra semana histórica con juegos de Aaron Judge usando `--sample-date AAAA-MM-DD`, o ajustar el tiempo de espera por solicitud con `--timeout 45`. Un `429` significa límite del proveedor: respeta `Retry-After` antes de repetir.
+
+En un entorno cloud con red restringida, permite **`statsapi.mlb.com`**, **`baseballsavant.mlb.com`**, **`api.open-meteo.com`**, **`github.com`** y **`codeload.github.com`**. Guardar un borrador de configuración no activa esos permisos: debes guardar y publicar la configuración desde los ajustes del entorno y volver a ejecutar el diagnóstico cuando esté aplicada. No necesitas claves de API ni desactivar la verificación TLS.
 
 ## iPhone y Android
 

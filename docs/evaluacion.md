@@ -8,6 +8,8 @@ Se informa MAE de hits, Brier, log loss, calibración por intervalos de probabil
 
 ## Descargar una vez y reutilizar
 
+Antes de una descarga grande, valida el acceso real a los proveedores con `.venv/bin/python scripts/check_connections.py`. Consulta el resultado de Statcast en `.cache/connection-report.json`: la comprobación descarga una muestra sin reutilizar las cachés y ejecuta el cálculo. Puede pasar aunque otras fuentes estén bloqueadas. Esta prueba verifica la integración, no la precisión deportiva; el historial temporal del diagnóstico no reemplaza las descargas siguientes.
+
 Ejemplo con IDs MLB de Aaron Judge, Shohei Ohtani y Juan Soto:
 
 ```sh
