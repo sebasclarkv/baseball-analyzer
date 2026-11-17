@@ -1,0 +1,50 @@
+name: Checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python-and-browser:
+    name: Python ${{ matrix.python }} / ${{ matrix.browser }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python: "3.10"
+            browser: chromium
+          - python: "3.12"
+            browser: webkit
+    env:
+      DIAMOND_TEST_BROWSER: ${{ matrix.browser }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - run: python -m pip install -r requirements-dev.txt -r requirements-research.txt
+      - run: python -m playwright install --with-deps "$DIAMOND_TEST_BROWSER"
+      - run: python -m pytest tests -q
+
+  frontend:
+    name: TypeScript and generated API client
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm run check:frontend
+      - run: npm run build:frontend
+      - run: git diff --exit-code -- baseball_analyzer_v2/static/api.js
