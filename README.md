@@ -14,7 +14,7 @@ Vista de la interfaz con **datos sintéticos de prueba**, no un pronóstico real
 
 ## Qué cambia en 3.0
 
-El **modo En vivo** reúne marcador, cuenta, corredores, lanzador y bateador actuales. Muestra la probabilidad de victoria publicada por MLB tras la última aparición completada y estima hits adicionales del bateador bajo escenarios explícitos de oportunidades. Incluye una repetición de un juego real para recorrer un cambio de ventaja.
+El **modo En vivo** reúne marcador, cuenta, corredores, lanzador y bateador actuales. Muestra la probabilidad de victoria de la última aparición completada para la que MLB publicó ese dato y estima hits adicionales del bateador según las oportunidades que tenga. Incluye una repetición de un juego real para recorrer un cambio de ventaja.
 
 [Ver el tablero en vivo en móvil](docs/en-vivo-390.png)
 

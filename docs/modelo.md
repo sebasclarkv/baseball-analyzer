@@ -1,8 +1,8 @@
-# Cómo calcula Diamond IQ 2.2
+# Cómo calcula Diamond IQ
 
 ## Evidencia histórica
 
-El modelo conserva la estimación bayesiana de la versión anterior: vida media de 365 días para historial largo y 45 para forma reciente, con muestras recientes separadas del historial de base. Usa xBA para contactos rastreados y resultados observados para las demás apariciones. H/PA tiene un prior de 0.220 por aparición; no es el promedio de bateo por turno. Los priors fijos de liga y las vidas medias son supuestos por evaluar, no parámetros óptimos demostrados.
+El modelo de previa 2.2 usa una estimación bayesiana con vida media de 365 días para historial largo y 45 para forma reciente. Usa xBA para contactos rastreados y resultados observados para las demás apariciones. H/PA tiene un prior de 0.220 por aparición. Los priors de liga y las vidas medias son supuestos por evaluar.
 
 La incertidumbre limita la evidencia efectiva al menor valor entre suma de pesos y tamaño efectivo de muestra. Así, cientos de apariciones muy antiguas no generan artificialmente una banda estrecha.
 
