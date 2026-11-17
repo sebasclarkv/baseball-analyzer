@@ -1,4 +1,4 @@
-"""Local web entry point for Baseball Analyzer 2.0."""
+"""Local web entry point for Baseball Analyzer 2.1."""
 
 import argparse
 import os

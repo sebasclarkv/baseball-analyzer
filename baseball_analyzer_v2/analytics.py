@@ -64,7 +64,7 @@ def _smoothed_rate(
         weighted_successes + prior_rate * prior_appearances
     ) / (weighted_total + prior_appearances)
     low, high = _wilson_interval(
-        posterior, effective_sample_size + prior_appearances
+        posterior, min(weighted_total, effective_sample_size) + prior_appearances
     )
     return {
         "rate": float(posterior),
@@ -113,7 +113,7 @@ def _estimate_metric(
         prior_appearances,
     )
     estimate["weighted_plate_appearances"] = total
-    estimate["effective_sample_size"] = _effective_sample_size(aligned_weights)
+    estimate["effective_sample_size"] = min(total, _effective_sample_size(aligned_weights))
     return estimate
 
 
@@ -282,7 +282,7 @@ def build_analysis(
         )
         for metric in LEAGUE_PRIORS
     }
-    form_effective_pa = _effective_sample_size(form_weights)
+    form_effective_pa = min(float(form_weights.sum()), _effective_sample_size(form_weights))
     form_weight = min(
         0.45,
         0.45 * form_effective_pa / (form_effective_pa + FORM_PRIOR_APPEARANCES),
@@ -321,7 +321,7 @@ def build_analysis(
                 pitcher_weights = _date_weights(
                     pitcher_pa, today, LONG_TERM_HALF_LIFE_DAYS
                 )
-                pitcher_effective_pa = _effective_sample_size(pitcher_weights)
+                pitcher_effective_pa = min(float(pitcher_weights.sum()), _effective_sample_size(pitcher_weights))
                 pitcher_estimates = {
                     metric: _estimate_metric(
                         pitcher_pa,
@@ -464,7 +464,7 @@ def build_analysis(
     else:
         metrics["barrel_percent"] = None
 
-    effective_sample_size = _effective_sample_size(long_weights)
+    effective_sample_size = min(float(long_weights.sum()), _effective_sample_size(long_weights))
     confidence_sample_size = min(
         effective_sample_size, pitcher_effective_pa
     ) if pitcher_estimates else effective_sample_size
@@ -685,151 +685,11 @@ def build_rolling_backtest(
     games_requested: int,
     lookback_days: int,
     today: date | None = None,
-    max_predictions: int = 25,
+    max_predictions: int = 100,
 ) -> dict[str, Any]:
-    """Evaluate future games using only the preceding games in each forecast window."""
-    if raw_stats.empty or not {"game_date", "events"}.issubset(raw_stats.columns):
-        return {
-            "status": "insufficient",
-            "predictions": 0,
-            "message": "No hay datos suficientes para validar el modelo.",
-        }
-
-    today = today or date.today()
-    stats = raw_stats.copy()
-    stats["_game_day"] = pd.to_datetime(
-        stats["game_date"], errors="coerce", utc=True
-    ).dt.tz_convert(None).dt.date
-    stats = stats.dropna(subset=["_game_day"])
-    stats = stats[stats["_game_day"] <= today].copy()
-    if "game_pk" in stats:
-        stats["_game_id"] = stats["game_pk"].astype("string").fillna(
-            stats["_game_day"].astype("string")
-        )
-    else:
-        stats["_game_id"] = stats["_game_day"].astype("string")
-
-    plate_appearances = stats.loc[stats["events"].notna()].copy()
-    if plate_appearances.empty:
-        return {
-            "status": "insufficient",
-            "predictions": 0,
-            "message": "No se encontraron apariciones completas para validar.",
-        }
-    plate_appearances["_event"] = (
-        plate_appearances["events"].astype("string").str.lower()
-    )
-
-    game_rows = []
-    for game_id, frame in plate_appearances.groupby("_game_id", sort=False):
-        events = frame["_event"]
-        game_rows.append(
-            {
-                "game_id": str(game_id),
-                "day": frame["_game_day"].min(),
-                "plate_appearances": int(len(frame)),
-                "hits": int(events.isin(HIT_EVENTS).sum()),
-            }
-        )
-    game_rows.sort(key=_game_sort_key)
-
-    eligible_targets = []
-    for index, target in enumerate(game_rows):
-        cutoff = target["day"] - timedelta(days=lookback_days)
-        history = [
-            row
-            for row in game_rows[:index]
-            if cutoff <= row["day"]
-        ]
-        if len(history) >= games_requested:
-            eligible_targets.append((target, history))
-
-    eligible_targets = eligible_targets[-max_predictions:]
-    if not eligible_targets:
-        return {
-            "status": "insufficient",
-            "predictions": 0,
-            "message": (
-                "Se necesitan más juegos previos dentro de la ventana seleccionada "
-                "para validar estas proyecciones."
-            ),
-        }
-
-    observations = []
-    for target, history in eligible_targets:
-        history_ids = {row["game_id"] for row in history}
-        history_stats = stats[stats["_game_id"].isin(history_ids)].copy()
-        forecast = build_analysis(
-            history_stats,
-            player,
-            games_requested=games_requested,
-            lookback_days=lookback_days,
-            today=target["day"],
-        )
-        projection = forecast["projection"]
-        actual_any_hit = int(target["hits"] > 0)
-        baseline_rate = forecast["per_plate_appearance"]["hits"]["recent_sample_rate"]
-        observations.append(
-            {
-                "forecast_hits": float(projection["hits"]),
-                "baseline_hits": float(projection["plate_appearances"] * baseline_rate),
-                "forecast_any_hit": float(projection["probability_one_or_more_hits"]),
-                "actual_hits": float(target["hits"]),
-                "actual_plate_appearances": float(target["plate_appearances"]),
-                "actual_any_hit": actual_any_hit,
-                "forecast_plate_appearances": float(projection["plate_appearances"]),
-                "date": target["day"],
-            }
-        )
-
-    count = len(observations)
-    hit_mae = float(np.mean([
-        abs(row["forecast_hits"] - row["actual_hits"]) for row in observations
-    ]))
-    baseline_mae = float(np.mean([
-        abs(row["baseline_hits"] - row["actual_hits"]) for row in observations
-    ]))
-    pa_mae = float(np.mean([
-        abs(row["forecast_plate_appearances"] - row["actual_plate_appearances"])
-        for row in observations
-    ]))
-    brier = float(np.mean([
-        (row["forecast_any_hit"] - row["actual_any_hit"]) ** 2
-        for row in observations
-    ]))
-    forecast_hit_rate = float(np.mean([row["forecast_any_hit"] for row in observations]))
-    actual_hit_rate = float(np.mean([row["actual_any_hit"] for row in observations]))
-    improvement = (
-        float((baseline_mae - hit_mae) / baseline_mae)
-        if baseline_mae > 0
-        else None
-    )
-    status = "available" if count >= 8 else "limited"
-    if status == "available":
-        comparison = (
-            "El modelo tuvo menor error de hits que la referencia reciente."
-            if hit_mae < baseline_mae
-            else "La referencia de tasa reciente tuvo menor o igual error de hits en esta muestra."
-        )
-        message = comparison + " Es una validación histórica, no una garantía para el próximo juego."
-    else:
-        message = (
-            f"Solo hay {count} juegos de validación; la lectura es preliminar y no concluyente."
-        )
-
-    return {
-        "status": status,
-        "predictions": count,
-        "from": observations[0]["date"].isoformat(),
-        "through": observations[-1]["date"].isoformat(),
-        "mean_absolute_error_hits": hit_mae,
-        "recent_rate_baseline_mae_hits": baseline_mae,
-        "mae_improvement_vs_recent_rate": improvement,
-        "mean_absolute_error_plate_appearances": pa_mae,
-        "brier_score_one_or_more_hits": brier,
-        "mean_predicted_probability_one_or_more_hits": forecast_hit_rate,
-        "observed_probability_one_or_more_hits": actual_hit_rate,
-        "calibration_gap": abs(forecast_hit_rate - actual_hit_rate),
-        "method": "rolling_origin",
-        "message": message,
-    }
+    """Compatibility entry point for the expanded, date-exclusive evaluator."""
+    from baseball_analyzer_v2.evaluation import evaluate_player
+    if today is not None and "game_date" in raw_stats:
+        days = pd.to_datetime(raw_stats["game_date"], errors="coerce", utc=True).dt.date
+        raw_stats = raw_stats.loc[days <= today]
+    return evaluate_player(raw_stats, player, games_requested, lookback_days, max_predictions)

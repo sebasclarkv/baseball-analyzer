@@ -8,8 +8,10 @@ import unicodedata
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+from difflib import SequenceMatcher
 
 import pandas as pd
+from baseball_analyzer_v2.storage import cached_history
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CACHE_ROOT = APP_ROOT / ".pybaseball" / "cache"
@@ -38,11 +40,8 @@ def _register():
     return chadwick_register(save=True)
 
 
-@lru_cache(maxsize=64)
-def _search_players_normalized(query: str, limit: int) -> tuple[dict[str, Any], ...]:
-    if not query:
-        return ()
-
+@lru_cache(maxsize=1)
+def _prepared_register() -> pd.DataFrame:
     table = _register()
     records = table.copy()
     for column in ("name_first", "name_last"):
@@ -57,8 +56,14 @@ def _search_players_normalized(query: str, limit: int) -> tuple[dict[str, Any], 
     records["_normalized_first"] = records["name_first"].map(_normalize)
     records["_normalized_last"] = records["name_last"].map(_normalize)
     records["_mlbam"] = records["key_mlbam"].fillna(-1).astype(int)
-    records = records[records["_mlbam"] > 0]
+    return records[records["_mlbam"] > 0]
 
+
+@lru_cache(maxsize=64)
+def _search_players_normalized(query: str, limit: int) -> tuple[dict[str, Any], ...]:
+    if not query:
+        return ()
+    records = _prepared_register().copy()
     tokens = query.split()
     if len(tokens) == 1:
         mask = (
@@ -66,24 +71,39 @@ def _search_players_normalized(query: str, limit: int) -> tuple[dict[str, Any], 
             | records["_normalized_first"].str.contains(query, regex=False)
         )
     else:
-        mask = records["_normalized_name"].str.contains(query, regex=False)
+        mask = pd.Series(True, index=records.index)
+        for token in tokens:
+            mask &= records["_normalized_name"].str.contains(token, regex=False)
     matches = records.loc[mask].copy()
+    if matches.empty and len(query) >= 4:
+        # Approximate matching is a suggestion only: the UI still requires an MLB ID selection.
+        canonical = " ".join(sorted(tokens))
+        def similarity(row):
+            choices = [" ".join(sorted(row["_normalized_name"].split()))]
+            if len(tokens) == 1:
+                choices += [row["_normalized_first"], row["_normalized_last"]]
+            return max(SequenceMatcher(None, canonical, name).ratio() for name in choices)
+        records["_similarity"] = records.apply(similarity, axis=1)
+        matches = records.loc[records["_similarity"] >= 0.80].copy()
+        if not matches.empty:
+            matches = matches.loc[matches["_similarity"] >= matches["_similarity"].max() - 0.08]
     matches["_rank"] = matches["_normalized_name"].map(
-        lambda name: 0 if name == query else 1 if name.startswith(query) else 2
+        lambda name: 0 if sorted(name.split()) == sorted(tokens) else 1 if name.startswith(query) else 2
     )
+    matches["_fuzzy_rank"] = -matches["_similarity"] if "_similarity" in matches else 0
     if "mlb_played_last" in matches:
         matches["_last_season"] = (
             matches["mlb_played_last"].fillna(0).astype(int)
         )
         matches = matches.sort_values(
-            ["_rank", "_last_season", "_display_name"],
-            ascending=[True, False, True],
+            ["_rank", "_fuzzy_rank", "_last_season", "_display_name"],
+            ascending=[True, True, False, True],
         )
     else:
-        matches = matches.sort_values(["_rank", "_display_name"])
+        matches = matches.sort_values(["_rank", "_fuzzy_rank", "_display_name"])
 
     results = []
-    for _, row in matches.head(limit).iterrows():
+    for _, row in matches.drop_duplicates("_mlbam").head(limit).iterrows():
         first_season = row.get("mlb_played_first")
         last_season = row.get("mlb_played_last")
         years = None
@@ -110,11 +130,11 @@ def fetch_batter_statcast(
     player_id: int, start_date: str, end_date: str
 ):
     """Fetch pitch-level Statcast data for one batter and date range."""
-    return pyb.statcast_batter(start_date, end_date, int(player_id))
+    return cached_history("batter", player_id, start_date, end_date, pyb.statcast_batter)
 
 
 def fetch_pitcher_statcast(
     player_id: int, start_date: str, end_date: str
 ):
     """Fetch pitch-level Statcast data for one opposing pitcher and date range."""
-    return pyb.statcast_pitcher(start_date, end_date, int(player_id))
+    return cached_history("pitcher", player_id, start_date, end_date, pyb.statcast_pitcher)

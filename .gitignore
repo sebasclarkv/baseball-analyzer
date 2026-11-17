@@ -134,3 +134,6 @@ dmypy.json
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+
+# Optional frontend development
+node_modules/

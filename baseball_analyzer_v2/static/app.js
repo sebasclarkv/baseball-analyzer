@@ -1,3 +1,5 @@
+import { loadGamesApi, loadContextApi } from "./api.js";
+
 const byId = (id) => document.getElementById(id);
 const form = byId("search-form");
 const queryInput = byId("player-query");
@@ -17,10 +19,23 @@ const installInstructions = byId("install-instructions");
 const validationMetrics = byId("validation-metrics");
 const validationStatus = byId("validation-status");
 const validationButton = byId("run-validation");
+const gameDateInput = byId("game-date");
+const gameList = byId("game-list");
+const scheduleStatus = byId("schedule-status");
+const gameContextPanel = byId("game-context-panel");
+const pitcherField = document.querySelector(".pitcher-field");
 const savedReportsKey = "diamond-iq:saved-reports:v1";
+const legacyMigrationKey = "diamond-iq:indexeddb-migrated:v1";
+const localDatabaseName = "diamond-iq-local";
+const localDatabaseVersion = 1;
 
 let selectedPlayer = null;
 let selectedPitcher = null;
+let selectedGame = null;
+let selectedGameContext = null;
+let selectedTeamSide = "away";
+let selectedGameForAnalysis = null;
+let scheduleGames = [];
 let searchTimer = null;
 let searchController = null;
 let pitcherSearchTimer = null;
@@ -30,6 +45,12 @@ let activeSuggestionIndex = -1;
 let activePitcherSuggestionIndex = -1;
 let deferredInstallPrompt = null;
 let validationController = null;
+let localDatabasePromise = null;
+let localDataReady = Promise.resolve();
+let savedReportsCache = [];
+let favoritePlayers = [];
+let scheduleController = null;
+let contextController = null;
 
 const percent = (value, digits) => {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return "—";
@@ -64,13 +85,33 @@ function clearSuggestions() {
   queryInput.removeAttribute("aria-activedescendant");
 }
 
-function choosePlayer(player) {
+function choosePlayer(player, options = {}) {
   selectedPlayer = player;
+  selectedGameForAnalysis = options.fromGame && selectedGame &&
+    isPregameGame(selectedGame) ? selectedGame.id : null;
+  form.classList.toggle("game-mode", Boolean(selectedGameForAnalysis));
+  if (pitcherField) pitcherField.hidden = Boolean(selectedGameForAnalysis);
+  if (selectedGameForAnalysis) {
+    selectedPitcher = null;
+    pitcherQueryInput.value = "";
+    clearPitcherSuggestions();
+  }
   queryInput.value = player.name;
   analyzeButton.disabled = false;
   updateAnalyzeLabel();
   clearSuggestions();
-  updateSearchMessage(player.years ? "Carrera MLB: " + player.years : "Jugador seleccionado");
+  if (selectedGameForAnalysis) {
+    const side = options.side === "home" ? "local" : "visitante";
+    const selectedTeam = selectedGameContext && selectedGameContext.teams &&
+      selectedGameContext.teams[options.side || selectedTeamSide];
+    const lineupStatus = selectedTeam && selectedTeam.lineup_status;
+    updateSearchMessage(
+      (lineupStatus === "confirmed" ? "Alineación publicada por MLB" : "Selección manual de plantilla") +
+        " · " + side + " · pitcher probable desde el juego",
+    );
+  } else {
+    updateSearchMessage(player.years ? "Carrera MLB: " + player.years : "Jugador seleccionado");
+  }
   queryInput.setAttribute("aria-expanded", "false");
 }
 
@@ -118,6 +159,9 @@ function clearPitcherSuggestions() {
 }
 
 function choosePitcher(pitcher) {
+  selectedGameForAnalysis = null;
+  form.classList.remove("game-mode");
+  if (pitcherField) pitcherField.hidden = false;
   selectedPitcher = pitcher;
   pitcherQueryInput.value = pitcher.name;
   clearPitcherSuggestions();
@@ -164,10 +208,14 @@ function showPitcherSuggestions(players) {
 function updateAnalyzeLabel() {
   const label = analyzeButton.querySelector("span");
   if (!label || analyzeButton.classList.contains("is-loading")) return;
-  label.textContent = selectedPitcher ? "Proyectar matchup" : "Analizar bateador";
+  label.textContent = selectedGameForAnalysis
+    ? "Proyectar este juego"
+    : selectedPitcher
+      ? "Proyectar matchup"
+      : "Analizar bateador";
 }
 
-function savedReportsList() {
+function legacyReportsList() {
   try {
     const reports = JSON.parse(localStorage.getItem(savedReportsKey) || "[]");
     return Array.isArray(reports)
@@ -176,6 +224,717 @@ function savedReportsList() {
       : [];
   } catch (error) {
     return [];
+  }
+}
+
+function savedReportsList() {
+  return savedReportsCache;
+}
+
+function requestResult(request) {
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("No se pudo leer la base local."));
+  });
+}
+
+function transactionResult(transaction) {
+  return new Promise((resolve, reject) => {
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error || new Error("No se pudo guardar localmente."));
+    transaction.onabort = () => reject(transaction.error || new Error("El guardado local se canceló."));
+  });
+}
+
+function openLocalDatabase() {
+  if (localDatabasePromise) return localDatabasePromise;
+  if (!("indexedDB" in window)) return Promise.resolve(null);
+  localDatabasePromise = new Promise((resolve, reject) => {
+    const request = indexedDB.open(localDatabaseName, localDatabaseVersion);
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      if (!database.objectStoreNames.contains("reports")) {
+        database.createObjectStore("reports", { keyPath: "id" });
+      }
+      if (!database.objectStoreNames.contains("favorites")) {
+        database.createObjectStore("favorites", { keyPath: "player_id" });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("IndexedDB no está disponible."));
+    request.onblocked = () => reject(new Error("Cierra otra pestaña de Diamond IQ para migrar el historial."));
+  }).catch((error) => {
+    localDatabasePromise = null;
+    throw error;
+  });
+  return localDatabasePromise;
+}
+
+function reportIdentity(analysis) {
+  const playerId = analysis.player && analysis.player.id;
+  const pitcherId = analysis.opponent_pitcher && analysis.opponent_pitcher.id || 0;
+  const gameId = analysis.game_context && analysis.game_context.game &&
+    analysis.game_context.game.id || 0;
+  const window = analysis.window || {};
+  return [
+    playerId,
+    window.games_requested || 0,
+    window.lookback_days || 0,
+    pitcherId,
+    gameId,
+  ].join(":");
+}
+
+function normalizeReport(record) {
+  if (!record || !record.analysis || !record.analysis.player || !record.analysis.window) {
+    return null;
+  }
+  return {
+    id: reportIdentity(record.analysis),
+    saved_at: record.saved_at || new Date().toISOString(),
+    analysis: record.analysis,
+  };
+}
+
+async function readStore(database, storeName) {
+  const transaction = database.transaction(storeName, "readonly");
+  const complete = transactionResult(transaction);
+  const result = await requestResult(transaction.objectStore(storeName).getAll());
+  await complete;
+  return result;
+}
+
+async function writeReports() {
+  const database = await openLocalDatabase();
+  if (!database) {
+    try {
+      localStorage.setItem(savedReportsKey, JSON.stringify(savedReportsCache));
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+  const transaction = database.transaction("reports", "readwrite");
+  const complete = transactionResult(transaction);
+  const store = transaction.objectStore("reports");
+  store.clear();
+  savedReportsCache.forEach((record) => store.put(record));
+  await complete;
+  return true;
+}
+
+async function writeFavorites() {
+  const database = await openLocalDatabase();
+  if (!database) return;
+  const transaction = database.transaction("favorites", "readwrite");
+  const complete = transactionResult(transaction);
+  const store = transaction.objectStore("favorites");
+  store.clear();
+  favoritePlayers.forEach((favorite) => store.put(favorite));
+  await complete;
+}
+
+async function migrateLegacyReports(database) {
+  let migrated = false;
+  try {
+    migrated = localStorage.getItem(legacyMigrationKey) === "complete";
+  } catch (error) {
+    // Storage access may be denied; repeat the idempotent migration on the next visit.
+  }
+  if (migrated) return;
+
+  const legacy = legacyReportsList()
+    .map(normalizeReport)
+    .filter(Boolean)
+    .slice(0, 8);
+  if (legacy.length) {
+    const existing = await readStore(database, "reports");
+    const merged = new Map(existing.map((record) => [record.id, record]));
+    legacy.forEach((record) => {
+      if (!merged.has(record.id)) merged.set(record.id, record);
+    });
+    const reports = [...merged.values()]
+      .sort((a, b) => String(b.saved_at).localeCompare(String(a.saved_at)))
+      .slice(0, 8);
+    const transaction = database.transaction("reports", "readwrite");
+    const complete = transactionResult(transaction);
+    const store = transaction.objectStore("reports");
+    reports.forEach((record) => store.put(record));
+    await complete;
+  }
+
+  try {
+    localStorage.setItem(legacyMigrationKey, "complete");
+    localStorage.removeItem(savedReportsKey);
+  } catch (error) {
+    // The report copy is already committed; leaving the legacy copy is harmless.
+  }
+}
+
+async function initializeLocalData() {
+  try {
+    const database = await openLocalDatabase();
+    if (database) {
+      await migrateLegacyReports(database);
+      savedReportsCache = (await readStore(database, "reports"))
+        .sort((a, b) => String(b.saved_at).localeCompare(String(a.saved_at)));
+      favoritePlayers = (await readStore(database, "favorites"))
+        .sort((a, b) => String(a.name).localeCompare(String(b.name), "es"));
+    } else {
+      savedReportsCache = legacyReportsList().map(normalizeReport).filter(Boolean);
+    }
+  } catch (error) {
+    savedReportsCache = legacyReportsList().map(normalizeReport).filter(Boolean);
+    message("No se pudo abrir la base local; los reportes se conservarán durante esta sesión.", "error");
+  }
+  renderSavedReports();
+  renderFavoritePlayers();
+  const latest = savedReportsCache[0];
+  if (latest && !latestAnalysis) showSavedReport(latest.analysis, false);
+}
+
+function updateFavoriteButton(player) {
+  const button = byId("favorite-player");
+  if (!button || !player) return;
+  const isFavorite = favoritePlayers.some(
+    (favorite) => Number(favorite.player_id) === Number(player.id),
+  );
+  button.setAttribute("aria-pressed", String(isFavorite));
+  button.setAttribute(
+    "aria-label",
+    isFavorite ? "Quitar jugador de favoritos" : "Guardar jugador en favoritos",
+  );
+  const star = button.querySelector(".favorite-star");
+  const label = button.querySelector(".favorite-label");
+  if (star) star.textContent = isFavorite ? "★" : "☆";
+  if (label) label.textContent = isFavorite ? "Guardado" : "Guardar";
+}
+
+function renderFavoritePlayers() {
+  const panel = byId("favorites-panel");
+  const list = byId("favorite-list");
+  if (!panel || !list) return;
+  list.replaceChildren();
+  panel.hidden = favoritePlayers.length === 0;
+  favoritePlayers.forEach((favorite) => {
+    const row = document.createElement("div");
+    row.className = "favorite-row";
+    const choose = document.createElement("button");
+    choose.type = "button";
+    choose.className = "favorite-player-button";
+    choose.textContent = favorite.name;
+    choose.addEventListener("click", () => {
+      choosePlayer({ id: favorite.player_id, name: favorite.name, years: null });
+      byId("search-form").scrollIntoView({ behavior: "smooth", block: "center" });
+      queryInput.focus();
+    });
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "favorite-remove-button";
+    remove.textContent = "Quitar";
+    remove.setAttribute("aria-label", "Quitar " + favorite.name + " de favoritos");
+    remove.addEventListener("click", () => void removeFavorite(favorite.player_id));
+    row.append(choose, remove);
+    list.appendChild(row);
+  });
+  if (latestAnalysis && latestAnalysis.player) updateFavoriteButton(latestAnalysis.player);
+}
+
+async function toggleFavorite(player) {
+  await localDataReady;
+  const playerId = Number(player && player.id);
+  if (!playerId || !player.name) return;
+  const current = favoritePlayers.find((favorite) => Number(favorite.player_id) === playerId);
+  if (current) {
+    favoritePlayers = favoritePlayers.filter(
+      (favorite) => Number(favorite.player_id) !== playerId,
+    );
+  } else {
+    favoritePlayers = favoritePlayers.concat({
+      player_id: playerId,
+      name: player.name,
+      added_at: new Date().toISOString(),
+    });
+  }
+  renderFavoritePlayers();
+  updateFavoriteButton(player);
+  try {
+    await writeFavorites();
+    message(
+      current ? "Jugador quitado de tus favoritos." : "Jugador guardado en este dispositivo.",
+      "success",
+    );
+  } catch (error) {
+    message("No se pudo guardar el favorito localmente.", "error");
+  }
+}
+
+async function removeFavorite(playerId) {
+  favoritePlayers = favoritePlayers.filter(
+    (favorite) => Number(favorite.player_id) !== Number(playerId),
+  );
+  renderFavoritePlayers();
+  if (latestAnalysis && Number(latestAnalysis.player.id) === Number(playerId)) {
+    updateFavoriteButton(latestAnalysis.player);
+  }
+  try {
+    await writeFavorites();
+  } catch (error) {
+    message("No se pudo actualizar la libreta local.", "error");
+  }
+}
+
+function localDateString(day) {
+  const year = day.getFullYear();
+  const month = String(day.getMonth() + 1).padStart(2, "0");
+  const date = String(day.getDate()).padStart(2, "0");
+  return year + "-" + month + "-" + date;
+}
+
+function moveScheduleDate(days) {
+  const current = new Date((gameDateInput.value || localDateString(new Date())) + "T12:00:00");
+  current.setDate(current.getDate() + days);
+  gameDateInput.value = localDateString(current);
+  clearGameContext();
+  void loadSchedule();
+}
+
+function gameTimeLabel(value) {
+  if (!value) return "Hora por confirmar";
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime())
+    ? String(value)
+    : parsed.toLocaleTimeString("es-MX", { hour: "numeric", minute: "2-digit" });
+}
+
+function displayGameStatus(game) {
+  const status = String(game.status || "").toLowerCase();
+  if (status.includes("final") || status.includes("completed") || status.includes("game over")) {
+    return "Final";
+  }
+  if (status.includes("progress") || status.includes("live") || status.includes("in game")) {
+    return "En juego";
+  }
+  if (status.includes("postpon")) return "Pospuesto";
+  if (status.includes("suspend")) return "Suspendido";
+  if (status.includes("cancel")) return "Cancelado";
+  if (status.includes("delay")) return "Demorado";
+  if (status.includes("warm")) return "Calentamiento";
+  if (status.includes("preview")) return "Previa";
+  if (status.includes("schedule") || status.includes("pre-game")) return "Programado";
+  return game.status || "Estado no disponible";
+}
+
+function isPregameGame(game) {
+  if (!game || !game.start_time) return false;
+  const status = String(game.status || "").toLowerCase();
+  const code = String(game.status_code || "").toLowerCase();
+  if (/final|complete|game over|in progress|live|postpon|suspend|cancel/.test(status)) {
+    return false;
+  }
+  if (["f", "final", "live", "in_progress", "completed", "postponed", "suspended", "cancelled"].includes(code)) {
+    return false;
+  }
+  return /scheduled|pre-game|preview|warm|pregame/.test(status) ||
+    ["s", "scheduled", "p", "preview", "w", "warmup"].includes(code);
+}
+
+function appendText(parent, tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  node.textContent = text === null || text === undefined ? "" : String(text);
+  parent.appendChild(node);
+  return node;
+}
+
+function teamSideNode(team, side, game) {
+  const node = document.createElement("span");
+  node.className = "game-team game-team-" + side;
+  const main = document.createElement("span");
+  main.className = "game-team-main";
+  appendText(main, "span", "team-abbreviation", team.abbreviation || (side === "away" ? "VIS" : "LOC"));
+  appendText(main, "strong", "team-name", team.name || "Equipo por confirmar");
+  node.appendChild(main);
+  const score = team.score;
+  if (score !== null && score !== undefined) {
+    appendText(node, "span", "team-score", score);
+  } else {
+    const probable = team.probable_pitcher && team.probable_pitcher.name;
+    const pitcher = appendText(
+      node,
+      "span",
+      "probable-pitcher",
+      probable ? "Probable · " + probable : "Probable por confirmar",
+    );
+    pitcher.title = "Pitcher probable, no alineación confirmada";
+  }
+  return node;
+}
+
+function renderGames(payload) {
+  if (Array.isArray(payload.games)) scheduleGames = payload.games;
+  const games = scheduleGames;
+  gameList.replaceChildren();
+  if (!games.length) {
+    const empty = document.createElement("div");
+    empty.className = "slate-empty";
+    appendText(empty, "strong", "", "No hay juegos publicados para esta fecha.");
+    appendText(empty, "span", "", "Puedes buscar un bateador abajo para hacer un análisis sin juego.");
+    gameList.appendChild(empty);
+  }
+
+  games.forEach((game) => {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "game-card";
+    card.dataset.gameId = String(game.id);
+    card.setAttribute("aria-pressed", String(
+      selectedGame && String(selectedGame.id) === String(game.id),
+    ));
+    card.setAttribute(
+      "aria-label",
+      (game.away && game.away.name || "Visitante") + " contra " +
+        (game.home && game.home.name || "Local") + " · " +
+        displayGameStatus(game) + " · " + gameTimeLabel(game.start_time),
+    );
+    card.addEventListener("click", () => void selectGame(game));
+
+    const top = document.createElement("span");
+    top.className = "game-card-top";
+    appendText(top, "span", "game-card-time", gameTimeLabel(game.start_time));
+    appendText(
+      top,
+      "span",
+      "game-status game-status-" + (isPregameGame(game) ? "pregame" : "closed"),
+      displayGameStatus(game),
+    );
+    card.appendChild(top);
+
+    const matchup = document.createElement("span");
+    matchup.className = "game-matchup";
+    matchup.append(
+      teamSideNode(game.away || {}, "away", game),
+      appendText(document.createElement("span"), "span", "at-mark", "@"),
+      teamSideNode(game.home || {}, "home", game),
+    );
+    card.appendChild(matchup);
+
+    const venueName = game.venue && game.venue.name || "Sede por confirmar";
+    appendText(card, "span", "game-card-venue", venueName);
+    gameList.appendChild(card);
+  });
+
+  const source = payload.source || {};
+  const sourceText = source.name ? " · " + source.name : "";
+  const staleText = source.stale ? " · datos guardados en caché" : "";
+  const warningText = Array.isArray(payload.warnings) && payload.warnings.length
+    ? " · " + payload.warnings.length + " aviso(s)"
+    : "";
+  scheduleStatus.textContent = games.length
+    ? games.length + " juegos · " + payload.date + sourceText + staleText + warningText
+    : "Sin juegos publicados · " + payload.date + sourceText;
+  scheduleStatus.classList.toggle("is-stale", Boolean(source.stale));
+}
+
+async function loadSchedule() {
+  if (!gameDateInput.value) gameDateInput.value = localDateString(new Date());
+  if (scheduleController) scheduleController.abort();
+  scheduleController = new AbortController();
+  const requestedDate = gameDateInput.value;
+  const controller = scheduleController;
+  scheduleStatus.textContent = "Cargando juegos de " + requestedDate + "…";
+  scheduleStatus.classList.add("is-loading");
+  try {
+    const payload = await loadGamesApi(requestedDate, controller.signal);
+    if (controller !== scheduleController) return;
+    renderGames(payload);
+  } catch (error) {
+    if (error.name === "AbortError") return;
+    gameList.replaceChildren();
+    const empty = document.createElement("div");
+    empty.className = "slate-empty slate-error";
+    appendText(empty, "strong", "", "No se pudo cargar la jornada.");
+    appendText(
+      empty,
+      "span",
+      "",
+      navigator.onLine === false
+        ? "Conéctate a Internet y vuelve a intentar."
+        : error.message || "La fuente de calendario no respondió.",
+    );
+    gameList.appendChild(empty);
+    scheduleStatus.textContent = "Calendario no disponible · " + requestedDate;
+  } finally {
+    if (controller === scheduleController) scheduleStatus.classList.remove("is-loading");
+  }
+}
+
+function gameContextWarnings(warnings) {
+  const list = byId("context-warnings");
+  list.replaceChildren();
+  const items = Array.isArray(warnings) ? warnings : [];
+  list.hidden = items.length === 0;
+  items.forEach((warning) => appendText(list, "li", "", warning));
+}
+
+function renderProbablePitchers(game) {
+  const container = byId("context-probables");
+  container.replaceChildren();
+  [
+    ["away", game.away || {}],
+    ["home", game.home || {}],
+  ].forEach(([side, team]) => {
+    const probable = team.probable_pitcher;
+    const card = document.createElement("div");
+    card.className = "probable-card";
+    appendText(card, "span", "probable-side", side === "away" ? "ABRIDOR VISITANTE" : "ABRIDOR LOCAL");
+    appendText(
+      card,
+      "strong",
+      "",
+      probable && probable.name ? probable.name : "Por confirmar",
+    );
+    appendText(card, "small", "", probable ? "Pitcher probable" : "Sin probable publicado");
+    container.appendChild(card);
+  });
+}
+
+function selectTeamSide(side) {
+  if (!selectedGameContext || !selectedGameContext.teams[side]) return;
+  selectedTeamSide = side;
+  renderTeamTabs();
+  renderTeamRoster();
+}
+
+function renderTeamTabs() {
+  const tabs = byId("team-tabs");
+  tabs.replaceChildren();
+  const teams = selectedGameContext && selectedGameContext.teams;
+  if (!teams) return;
+  ["away", "home"].forEach((side) => {
+    const team = teams[side];
+    if (!team) return;
+    const tab = document.createElement("button");
+    tab.type = "button";
+    tab.className = "team-tab" + (side === selectedTeamSide ? " is-active" : "");
+    tab.id = "team-tab-" + side;
+    tab.setAttribute("aria-pressed", String(side === selectedTeamSide));
+    tab.textContent = (side === "away" ? "VISITANTE · " : "LOCAL · ") + team.name;
+    tab.addEventListener("click", () => selectTeamSide(side));
+    tabs.appendChild(tab);
+  });
+}
+
+function renderTeamRoster() {
+  const team = selectedGameContext && selectedGameContext.teams &&
+    selectedGameContext.teams[selectedTeamSide];
+  const roster = byId("team-roster");
+  const status = byId("team-lineup-status");
+  const guidance = byId("lineup-guidance");
+  roster.replaceChildren();
+  if (!team) {
+    status.textContent = "Alineación no disponible";
+    guidance.textContent = "No hay información de equipo para este juego.";
+    return;
+  }
+
+  const lineup = Array.isArray(team.lineup) ? team.lineup : [];
+  const published = team.lineup_status === "confirmed";
+  const selection = lineup.length ? lineup : (Array.isArray(team.roster) ? team.roster : []);
+  status.textContent = published ? "PUBLICADA POR MLB" : "NO PUBLICADA";
+  status.className = "lineup-status " + (published ? "lineup-published" : "lineup-pending");
+  guidance.textContent = published
+    ? "Alineación publicada por MLB; puede cambiar antes del primer lanzamiento. Elige un bateador para proyectarlo."
+    : lineup.length
+      ? "MLB todavía no marca esta alineación como publicada. Los nombres visibles son preliminares, no titulares confirmados."
+      : "La alineación no está publicada. Elige manualmente desde la plantilla oficial; no asumimos quién será titular.";
+
+  if (!selection.length) {
+    const empty = document.createElement("p");
+    empty.className = "roster-empty";
+    empty.textContent = "MLB aún no publica la alineación ni una plantilla para este equipo.";
+    roster.appendChild(empty);
+    return;
+  }
+
+  const canProject = selectedGame && isPregameGame(selectedGame);
+  selection.forEach((player) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "roster-player" + (
+      published && lineup.length ? " is-lineup" : " is-roster-choice"
+    );
+    button.disabled = !canProject;
+    const isSelected = selectedPlayer &&
+      Number(selectedPlayer.id) === Number(player.id) &&
+      Number(selectedGameForAnalysis) === Number(selectedGame && selectedGame.id);
+    button.setAttribute("aria-pressed", String(Boolean(isSelected)));
+    button.addEventListener("click", () => choosePlayer(
+      { id: player.id, name: player.name, years: null },
+      { fromGame: true, side: selectedTeamSide },
+    ));
+
+    const order = player.batting_order;
+    appendText(
+      button,
+      "span",
+      "lineup-order",
+      published && order ? String(order) : player.position || "•",
+    );
+    const details = document.createElement("span");
+    details.className = "lineup-player-details";
+    appendText(details, "strong", "", player.name || "Jugador sin nombre");
+    appendText(
+      details,
+      "small",
+      "",
+      player.position || (published ? "Alineación publicada" : "Plantilla MLB"),
+    );
+    button.appendChild(details);
+    appendText(button, "span", "lineup-select-mark", "↗");
+    roster.appendChild(button);
+  });
+
+  if (!canProject) {
+    const blocked = document.createElement("p");
+    blocked.className = "roster-blocked";
+    blocked.textContent = "Este juego ya comenzó, terminó o no tiene hora válida; no se genera una proyección previa.";
+    roster.appendChild(blocked);
+  }
+}
+
+function weatherDescription(weather) {
+  if (!weather || weather.status === "unavailable") {
+    return weather && weather.message || "Clima no disponible para este juego.";
+  }
+  if (weather.status === "not_applicable") {
+    return weather.message || "El techo o la sede hacen que el clima exterior no aplique.";
+  }
+  const items = [];
+  if (weather.temperature_c !== null && weather.temperature_c !== undefined) {
+    items.push(number(weather.temperature_c, 0) + " °C");
+  }
+  if (weather.wind_kmh !== null && weather.wind_kmh !== undefined) {
+    items.push("viento " + number(weather.wind_kmh, 0) + " km/h");
+  }
+  if (weather.wind_direction) items.push(String(weather.wind_direction));
+  if (weather.roof) {
+    const roofLabels = {
+      Open: "techo abierto",
+      Dome: "domo",
+      Retractable: "techo retráctil · apertura actual desconocida",
+      desconocido: "techo desconocido",
+    };
+    items.push(roofLabels[weather.roof] || "techo " + weather.roof);
+  }
+  return items.length ? items.join(" · ") : weather.message || "Condiciones sin dato público.";
+}
+
+function renderGameContext(context) {
+  selectedGameContext = context;
+  const game = context.game || selectedGame;
+  selectedGame = game;
+  const away = game.away && game.away.name || "Visitante";
+  const home = game.home && game.home.name || "Local";
+  setText("game-context-title", away + " @ " + home);
+  setText(
+    "game-context-subtitle",
+    gameTimeLabel(game.start_time) + " · " + displayGameStatus(game) + " · " +
+      (game.venue && game.venue.name || "Sede por confirmar"),
+  );
+  renderProbablePitchers(game);
+  const teams = context.teams || {};
+  if (!teams[selectedTeamSide]) {
+    selectedTeamSide = teams.away ? "away" : "home";
+  }
+  renderTeamTabs();
+  renderTeamRoster();
+
+  const weather = context.weather || {};
+  const weatherText = weatherDescription(weather);
+  const weatherNote = weather.applied_to_projection === false
+    ? " · contexto descriptivo, no cambia la proyección"
+    : "";
+  setText("context-weather", "CLIMA · " + weatherText + weatherNote);
+  const source = context.source || {};
+  setText(
+    "context-source",
+    (source.name || "Fuente de MLB") +
+      (source.fetched_at ? " · datos de fuente al " + new Date(source.fetched_at).toLocaleString("es-MX") : "") +
+      (source.stale ? " · caché anterior" : ""),
+  );
+  gameContextWarnings(context.warnings);
+  byId("analysis-game-context").hidden = true;
+}
+
+async function selectGame(game) {
+  selectedGame = game;
+  selectedGameContext = null;
+  selectedTeamSide = "away";
+  selectedGameForAnalysis = isPregameGame(game) ? game.id : null;
+  selectedPlayer = null;
+  selectedPitcher = null;
+  queryInput.value = "";
+  pitcherQueryInput.value = "";
+  analyzeButton.disabled = true;
+  form.classList.toggle("game-mode", Boolean(selectedGameForAnalysis));
+  if (pitcherField) pitcherField.hidden = Boolean(selectedGameForAnalysis);
+  updateAnalyzeLabel();
+  updateSearchMessage(
+    selectedGameForAnalysis
+      ? "Elige un bateador de la alineación o plantilla de este juego."
+      : "Este juego no admite una proyección previa; puedes usar la búsqueda manual sin adjuntarlo.",
+  );
+  [...gameList.querySelectorAll(".game-card")].forEach((card) => {
+    card.setAttribute("aria-pressed", String(card.dataset.gameId === String(game.id)));
+  });
+
+  gameContextPanel.hidden = false;
+  setText("game-context-title", "Cargando contexto del juego…");
+  setText("game-context-subtitle", "");
+  byId("context-probables").replaceChildren();
+  byId("team-tabs").replaceChildren();
+  byId("team-roster").replaceChildren();
+  byId("context-weather").textContent = "Clima · consultando fuente disponible…";
+  byId("context-source").textContent = "";
+  gameContextWarnings([]);
+  if (contextController) contextController.abort();
+  contextController = new AbortController();
+  const controller = contextController;
+  try {
+    const payload = await loadContextApi(game.id, controller.signal);
+    if (controller !== contextController) return;
+    renderGameContext(payload);
+  } catch (error) {
+    if (error.name === "AbortError") return;
+    setText("game-context-title", (game.away && game.away.name || "Visitante") + " @ " +
+      (game.home && game.home.name || "Local"));
+    setText(
+      "game-context-subtitle",
+      "No pudimos cargar la alineación. No seleccionamos titulares por nuestra cuenta.",
+    );
+    setText("context-weather", error.message || "Contexto no disponible.");
+  }
+}
+
+function clearGameContext() {
+  if (contextController) contextController.abort();
+  selectedGame = null;
+  selectedGameContext = null;
+  selectedGameForAnalysis = null;
+  selectedTeamSide = "away";
+  gameContextPanel.hidden = true;
+  form.classList.remove("game-mode");
+  if (pitcherField) pitcherField.hidden = false;
+  [...gameList.querySelectorAll(".game-card")].forEach((card) => {
+    card.setAttribute("aria-pressed", "false");
+  });
+  updateAnalyzeLabel();
+  if (selectedPlayer) {
+    analyzeButton.disabled = false;
+    updateSearchMessage("Juego quitado; el análisis se hará sin ese contexto.");
+  } else {
+    analyzeButton.disabled = true;
   }
 }
 
@@ -206,23 +965,25 @@ function renderSavedReports() {
   });
 }
 
-function saveAnalysisLocally(analysis) {
+async function saveAnalysisLocally(analysis) {
+  await localDataReady;
+  const identity = reportIdentity(analysis);
   const reports = savedReportsList().filter(
     (record) => !(
-      Number(record.analysis.player.id) === Number(analysis.player.id) &&
-      Number(record.analysis.window.games_requested) === Number(analysis.window.games_requested) &&
-      Number(record.analysis.window.lookback_days) === Number(analysis.window.lookback_days) &&
-      Number(record.analysis.opponent_pitcher && record.analysis.opponent_pitcher.id || 0) ===
-        Number(analysis.opponent_pitcher && analysis.opponent_pitcher.id || 0)
+      record.id === identity
     ),
   );
-  reports.unshift({ saved_at: new Date().toISOString(), analysis });
+  savedReportsCache = [{ id: identity, saved_at: new Date().toISOString(), analysis }]
+    .concat(reports)
+    .slice(0, 8);
+  let persisted = true;
   try {
-    localStorage.setItem(savedReportsKey, JSON.stringify(reports.slice(0, 8)));
+    persisted = await writeReports();
   } catch (error) {
-    // A private browsing session can disable local storage; the live report still works.
+    persisted = false;
   }
   renderSavedReports();
+  return persisted;
 }
 
 function reportSourceDate(analysis) {
@@ -292,7 +1053,11 @@ async function searchPitchers(query) {
 
 queryInput.addEventListener("input", () => {
   selectedPlayer = null;
+  selectedGameForAnalysis = null;
+  form.classList.remove("game-mode");
+  if (pitcherField) pitcherField.hidden = false;
   analyzeButton.disabled = true;
+  updateAnalyzeLabel();
   updateSearchMessage("");
   if (searchController) searchController.abort();
   clearSuggestions();
@@ -401,13 +1166,27 @@ form.addEventListener("submit", async (event) => {
     pitcherQueryInput.focus();
     return;
   }
+  if (selectedGameForAnalysis && (!selectedGame || !isPregameGame(selectedGame))) {
+    updateSearchMessage("Este juego ya comenzó o no admite una proyección previa.");
+    return;
+  }
 
   const player = { ...selectedPlayer };
+  const pitcher = selectedPitcher ? { ...selectedPitcher } : null;
+  const gameId = selectedGameForAnalysis;
+  if (validationController) validationController.abort();
   analyzeButton.disabled = true;
   analyzeButton.classList.add("is-loading");
-  analyzeButton.querySelector("span").textContent = "Analizando Statcast";
+  analyzeButton.querySelector("span").textContent = gameId
+    ? "Proyectando juego"
+    : "Analizando Statcast";
   updateSearchMessage("");
-  message("Descargando el historial Statcast y ajustando forma, contacto y matchup…", "loading");
+  message(
+    gameId
+      ? "Consultando alineación, pitcher probable e historial disponible antes del juego…"
+      : "Descargando el historial Statcast y ajustando forma, contacto y matchup…",
+    "loading",
+  );
 
   try {
     const response = await fetch("/api/analyze", {
@@ -416,8 +1195,9 @@ form.addEventListener("submit", async (event) => {
       body: JSON.stringify({
         player_id: player.id,
         player_name: player.name,
-        opponent_pitcher_id: selectedPitcher ? selectedPitcher.id : null,
-        opponent_pitcher_name: selectedPitcher ? selectedPitcher.name : null,
+        opponent_pitcher_id: pitcher ? pitcher.id : null,
+        opponent_pitcher_name: pitcher ? pitcher.name : null,
+        game_id: gameId || null,
         games: Number(byId("games-select").value),
         lookback_days: Number(byId("window-select").value),
       }),
@@ -425,9 +1205,14 @@ form.addEventListener("submit", async (event) => {
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.detail || "No se pudo completar el análisis.");
     latestAnalysis = payload;
-    saveAnalysisLocally(payload);
+    const savedLocally = await saveAnalysisLocally(payload);
     renderAnalysis(payload);
-    message("", "");
+    message(
+      savedLocally
+        ? ""
+        : "Proyección lista. El navegador no pudo guardarla de forma permanente; seguirá visible durante esta sesión.",
+      savedLocally ? "" : "warning",
+    );
     const possibleBacktestGames = Math.max(
       0,
       Number(payload.window.games_available || 0) - Number(payload.window.games_requested || 20),
@@ -447,7 +1232,9 @@ form.addEventListener("submit", async (event) => {
     const cached = savedReportsList().find(
       (record) => Number(record.analysis.player.id) === Number(player.id) &&
         Number(record.analysis.opponent_pitcher && record.analysis.opponent_pitcher.id || 0) ===
-          Number(selectedPitcher && selectedPitcher.id || 0),
+          Number(pitcher && pitcher.id || 0) &&
+        Number(record.analysis.game_context && record.analysis.game_context.game &&
+          record.analysis.game_context.game.id || 0) === Number(gameId || 0),
     );
     if (cached) {
       showSavedReport(cached.analysis);
@@ -473,11 +1260,255 @@ function setTrack(id, value, max) {
   track.style.width = normalized + "%";
 }
 
+function renderHitDistribution(projection, explanation) {
+  const panel = byId("hit-distribution");
+  const valuesNode = byId("distribution-values");
+  const outcomes = [
+    ["probability_zero_hits", "probability-zero-hits", "probability-zero-bar"],
+    ["probability_exactly_one_hit", "probability-one-hit", "probability-one-bar"],
+    ["probability_two_or_more_hits", "probability-two-plus-hits", "probability-two-plus-bar"],
+  ];
+  const values = outcomes.map(([key]) => projection[key]);
+  const valid = values.every((value) =>
+    typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1,
+  );
+  const total = valid ? values.reduce((sum, value) => sum + value, 0) : 0;
+  const coherent = valid && Math.abs(total - 1) <= 0.015;
+  panel.hidden = false;
+  valuesNode.hidden = !coherent;
+  setText(
+    "distribution-note",
+    coherent ? "Probabilidades por juego · estimación" : "No disponible",
+  );
+  setText(
+    "distribution-footnote",
+    coherent
+      ? "Los tres resultados suman 100%. Son probabilidades estimadas, no una garantía."
+      : "La fuente no devolvió una distribución completa para este informe; no se deriva de hits esperados.",
+  );
+  if (!coherent) return;
+
+  outcomes.forEach(([sourceKey, valueId, barId]) => {
+    setText(valueId, percent(projection[sourceKey]));
+    setTrack(barId, projection[sourceKey] * 100, 100);
+  });
+  const limitation = Array.isArray(explanation && explanation.limitations)
+    ? explanation.limitations.find((item) => /independent|independ|apariciones/i.test(item))
+    : null;
+  if (limitation) {
+    setText("distribution-footnote", limitation);
+  }
+}
+
+function renderQuality(quality, explanation) {
+  const panel = byId("data-quality");
+  if (!quality) {
+    panel.hidden = true;
+    return;
+  }
+  panel.hidden = false;
+  panel.className = "data-quality quality-" + (quality.status || "provisional");
+  const ready = quality.status === "ready";
+  setText("data-quality-status", ready ? "Lista" : "Provisional");
+  setText(
+    "quality-summary",
+    explanation && explanation.summary ||
+      (ready
+        ? "Los datos requeridos para esta proyección están disponibles."
+        : "Faltan datos para completar el contexto; revisa los elementos indicados."),
+  );
+  const missing = Array.isArray(quality.missing) ? quality.missing : [];
+  const missingList = byId("quality-missing");
+  missingList.replaceChildren();
+  missingList.hidden = missing.length === 0;
+  missing.forEach((item) => appendText(missingList, "li", "", item));
+
+  const warnings = Array.isArray(quality.warnings) ? quality.warnings : [];
+  const warningList = byId("quality-warnings");
+  warningList.replaceChildren();
+  warningList.hidden = warnings.length === 0;
+  warnings.forEach((item) => appendText(warningList, "li", "", item));
+
+  const sources = Array.isArray(quality.sources) ? quality.sources.join(" · ") : "";
+  const asOf = quality.as_of
+    ? "Análisis generado: " + new Date(quality.as_of).toLocaleString("es-MX")
+    : "Fecha de generación no especificada.";
+  setText("quality-as-of", [sources, asOf].filter(Boolean).join(" · "));
+  const indicator = byId("data-quality-indicator");
+  indicator.className = "quality-indicator " + (ready ? "quality-dot-ready" : "quality-dot-provisional");
+}
+
+function renderAnalysisGameContext(context, matchup) {
+  const section = byId("analysis-game-context");
+  if (!context || !context.game) {
+    section.hidden = true;
+    return;
+  }
+  section.hidden = false;
+  const game = context.game;
+  const teams = context.teams || {};
+  const away = game.away && game.away.name || "Visitante";
+  const home = game.home && game.home.name || "Local";
+  setText("analysis-context-title", away + " @ " + home);
+
+  const statuses = ["away", "home"].map((side) => {
+    const team = teams[side];
+    if (!team) return null;
+    const label = team.lineup_status === "confirmed" ? "alineación publicada" : "alineación no publicada";
+    return (team.name || (side === "away" ? "Visitante" : "Local")) + " · " + label;
+  }).filter(Boolean);
+  const published = ["away", "home"].some(
+    (side) => teams[side] && teams[side].lineup_status === "confirmed",
+  );
+  const statusNode = byId("analysis-lineup-status");
+  statusNode.textContent = statuses.length
+    ? statuses.join(" · ")
+    : "Estado de alineaciones no disponible";
+  statusNode.className = "lineup-status " + (published ? "lineup-published" : "lineup-pending");
+
+  const body = byId("analysis-context-body");
+  body.replaceChildren();
+  const gameMeta = document.createElement("div");
+  gameMeta.className = "analysis-context-item";
+  appendText(gameMeta, "span", "context-item-label", "JUEGO");
+  appendText(
+    gameMeta,
+    "strong",
+    "",
+    gameTimeLabel(game.start_time) + " · " + (game.venue && game.venue.name || "Sede sin dato"),
+  );
+  body.appendChild(gameMeta);
+
+  const pitchers = document.createElement("div");
+  pitchers.className = "analysis-context-item";
+  appendText(pitchers, "span", "context-item-label", "PITCHERS PROBABLES");
+  const awayPitcher = game.away && game.away.probable_pitcher;
+  const homePitcher = game.home && game.home.probable_pitcher;
+  appendText(
+    pitchers,
+    "strong",
+    "",
+    (awayPitcher && awayPitcher.name || "Visitante: sin probable") +
+      " · " + (homePitcher && homePitcher.name || "Local: sin probable"),
+  );
+  body.appendChild(pitchers);
+
+  const weather = context.weather;
+  if (weather) {
+    const weatherItem = document.createElement("div");
+    weatherItem.className = "analysis-context-item";
+    appendText(weatherItem, "span", "context-item-label", "CLIMA · CONTEXTO");
+    appendText(
+      weatherItem,
+      "strong",
+      "",
+      weatherDescription(weather) +
+        (weather.applied_to_projection === false
+          ? " · no aplicado al cálculo"
+          : ""),
+    );
+    body.appendChild(weatherItem);
+  }
+
+  const repertoire = matchup && matchup.pitch_repertoire;
+  if (repertoire && (Array.isArray(repertoire) ? repertoire.length : true)) {
+    const repertoireItem = document.createElement("div");
+    repertoireItem.className = "analysis-context-item";
+    appendText(repertoireItem, "span", "context-item-label", "REPERTORIO DEL PITCHER");
+    const pitchNames = {
+      FF: "Recta de cuatro costuras",
+      SI: "Sinker",
+      SL: "Slider",
+      CH: "Cambio",
+      CU: "Curva",
+      FC: "Cutter",
+      FS: "Splitter",
+      ST: "Sweeper",
+    };
+    const pitchRows = Array.isArray(repertoire) ? repertoire : repertoire.pitches;
+    const summary = Array.isArray(pitchRows) && pitchRows.length
+      ? pitchRows.slice(0, 4).map((pitch) => {
+        const name = pitchNames[pitch.pitch_type] || pitch.pitch_type || "Lanzamiento";
+        const share = typeof pitch.share === "number" ? " " + percent(pitch.share) : "";
+        const velocity = typeof pitch.velocity_mph === "number"
+          ? " · " + number(pitch.velocity_mph, 1) + " mph"
+          : "";
+        return name + share + velocity;
+      }).join(" · ")
+      : repertoire.summary || "Repertorio no disponible.";
+    appendText(
+      repertoireItem,
+      "strong",
+      "",
+      summary + (
+        (Array.isArray(pitchRows)
+          ? pitchRows.some((pitch) => pitch.applied_to_projection === false)
+          : repertoire.applied_to_projection === false)
+          ? " · descriptivo, no aplicado"
+          : ""
+      ),
+    );
+    body.appendChild(repertoireItem);
+  }
+
+  const bullpen = matchup && matchup.bullpen;
+  if (bullpen && Array.isArray(bullpen.relievers) && bullpen.relievers.length) {
+    const bullpenItem = document.createElement("div");
+    bullpenItem.className = "analysis-context-item";
+    appendText(bullpenItem, "span", "context-item-label", "ACTIVIDAD RECIENTE DEL BULLPEN");
+    const recent = bullpen.relievers.slice(0, 3).map((reliever) =>
+      reliever.name + (
+        reliever.pitches_last_3_days !== null && reliever.pitches_last_3_days !== undefined
+          ? " · " + reliever.pitches_last_3_days + " lanzamientos/3d"
+          : ""
+      ) + (reliever.stale ? " · dato anterior" : "")
+    ).join(" · ");
+    appendText(
+      bullpenItem,
+      "strong",
+      "",
+      recent + (bullpen.workload_applied === false ? " · carga no aplicada a la proyección" : ""),
+    );
+    body.appendChild(bullpenItem);
+  }
+
+  const profile = matchup && matchup.player_profile;
+  if (profile) {
+    const profileItem = document.createElement("div");
+    profileItem.className = "analysis-context-item";
+    appendText(profileItem, "span", "context-item-label", "PERFIL DEL JUGADOR");
+    const facts = [];
+    if (profile.age !== null && profile.age !== undefined) facts.push("edad " + profile.age);
+    if (profile.days_since_last_game !== null && profile.days_since_last_game !== undefined) {
+      facts.push(profile.days_since_last_game + " días desde el último juego");
+    }
+    appendText(
+      profileItem,
+      "strong",
+      "",
+      facts.length
+        ? facts.join(" · ") + (profile.applied_to_projection === false ? " · contexto, no aplicado" : "")
+        : "Sin datos de edad o último juego.",
+    );
+    body.appendChild(profileItem);
+  }
+
+  const source = context.source || {};
+  setText(
+    "analysis-context-source",
+    (source.name || "Fuente de MLB") +
+      (source.fetched_at ? " · datos de fuente al " + new Date(source.fetched_at).toLocaleString("es-MX") : "") +
+      (source.stale ? " · dato en caché" : ""),
+  );
+}
+
 function renderAnalysis(data) {
   const rates = data.per_plate_appearance;
   const projection = data.projection;
   const contact = data.contact;
   const player = data.player;
+  const model = data.model || {};
+  const explanation = data.explanation || {};
 
   emptyState.hidden = true;
   dashboard.hidden = false;
@@ -494,9 +1525,24 @@ function renderAnalysis(data) {
   confidence.className = "confidence-pill confidence-" + data.sample.confidence;
 
   setText("projected-hits", number(projection.hits, 2));
+  const predictiveInterval = projection.predictive_interval_hits;
+  const intervalLow = predictiveInterval
+    ? predictiveInterval.low
+    : projection.hits_low;
+  const intervalHigh = predictiveInterval
+    ? predictiveInterval.high
+    : projection.hits_high;
   setText(
     "projected-range",
-    number(projection.hits_low, 2) + "–" + number(projection.hits_high, 2) + " hits"
+    number(intervalLow, predictiveInterval ? 0 : 2) + "–" +
+      number(intervalHigh, predictiveInterval ? 0 : 2) + " hits",
+  );
+  setText(
+    "projected-interval-note",
+    predictiveInterval
+      ? Math.round((predictiveInterval.level || 0.9) * 100) + "% " +
+        (predictiveInterval.calibrated ? "calibrado" : "aprox. · no calibrado")
+      : "intervalo no disponible",
   );
   setText(
     "projected-pa",
@@ -566,18 +1612,31 @@ function renderAnalysis(data) {
   setText("trend-game-count", data.trend.length);
   setText(
     "model-insight",
-    data.insight || "El modelo combina resultados observados y calidad de contacto disponible.",
+    explanation.summary || data.insight ||
+      "El modelo combina resultados observados y calidad de contacto disponible.",
   );
   setText(
     "model-note",
-    data.model.name + ": historial con vida media de " +
-      (data.model.half_life_days || 365) + " días; forma reciente con vida media de " +
-      (data.model.form_half_life_days || 45) + " días y shrinkage por tamaño de muestra. " +
-      (data.model.hit_estimate || "") + " " + (data.model.plate_appearance_forecast || "")
+    (model.name || "Modelo de proyección") + ": historial con vida media de " +
+      (model.half_life_days || 365) + " días; forma reciente con vida media de " +
+      (model.form_half_life_days || 45) + " días y ajuste por tamaño de muestra. " +
+      (model.hit_estimate || "") + " " + (model.plate_appearance_forecast || "") +
+      (predictiveInterval && predictiveInterval.calibrated === false
+        ? " El intervalo de resultados es aproximado y no está calibrado."
+        : "")
   );
+  const insightDetail = byId("model-insight-detail");
+  insightDetail.replaceChildren();
+  (Array.isArray(explanation.limitations) ? explanation.limitations : []).forEach((item) => {
+    appendText(insightDetail, "p", "limitation-note", item);
+  });
 
   renderDrivers(data.drivers || []);
   renderSeasons(data.season_trend || []);
+  renderHitDistribution(projection, explanation);
+  renderQuality(data.data_quality, explanation);
+  renderAnalysisGameContext(data.game_context, data.matchup);
+  updateFavoriteButton(player);
 
   validationButton.disabled = false;
   validationButton.textContent = data.validation ? "Volver a medir" : "Medir precisión histórica";
@@ -673,6 +1732,128 @@ function renderValidation(validation, statusText) {
   validationStatus.textContent = (statusText || validation.message || "Validación completa.") + dates;
 }
 
+function renderCohortEvaluation(report) {
+  const status = byId("cohort-evaluation-status");
+  const result = byId("cohort-evaluation-report");
+  const candidatePanel = byId("cohort-candidate");
+  result.hidden = true;
+  candidatePanel.hidden = true;
+  status.replaceChildren();
+
+  if (!report || report.status === "not_run") {
+    status.appendChild(document.createTextNode(
+      report && report.message
+        ? report.message
+        : "No hay un reporte multijugador guardado en este equipo.",
+    ));
+    status.appendChild(document.createTextNode(" "));
+    const guide = document.createElement("a");
+    guide.href = "https://github.com/sebasclarkv/baseball-analyzer/blob/main/docs/evaluacion.md";
+    guide.target = "_blank";
+    guide.rel = "noopener";
+    guide.textContent = "Ver instrucciones de evaluación CLI";
+    status.appendChild(guide);
+    return;
+  }
+
+  const stateLabel = report.status === "available" ? "disponible" :
+    report.status === "limited" ? "limitado" : String(report.status || "sin estado");
+  status.textContent = "Reporte " + stateLabel + " · las métricas requieren interpretación.";
+  result.hidden = false;
+  const seasons = Array.isArray(report.seasons) ? report.seasons : [];
+  const generated = report.generated_at ? new Date(report.generated_at) : null;
+  const generatedLabel = generated && !Number.isNaN(generated.getTime())
+    ? generated.toLocaleString("es-MX")
+    : "fecha no indicada";
+  setText(
+    "cohort-report-overview",
+    number(report.predictions, 0) + " proyecciones · " + number(report.players, 0) +
+      " jugadores · " + seasons.length + " temporadas" +
+      (seasons.length ? " (" + seasons.join(", ") + ")" : "") +
+      " · generado " + generatedLabel,
+  );
+
+  const metrics = report.metrics || {};
+  const baseline = report.baseline || {};
+  setText("cohort-mae", number(metrics.mean_absolute_error_hits, 2) + " H");
+  setText("cohort-brier", number(metrics.brier_score_one_or_more_hits, 3));
+  setText("cohort-coverage", percent(metrics.predictive_interval_coverage));
+  setText("cohort-baseline-mae", number(baseline.mean_absolute_error_hits, 2) + " H");
+  setText("cohort-baseline-brier", number(baseline.brier_score_one_or_more_hits, 3));
+  setText("cohort-baseline-coverage", "No calculada");
+  setText(
+    "cohort-scope",
+    report.scope || "El alcance del reporte no está especificado.",
+  );
+
+  const candidate = report.candidate;
+  if (candidate) {
+    candidatePanel.hidden = false;
+    setText("cohort-candidate-title", candidate.name || "Modelo candidato");
+    const candidateMetrics = candidate.metrics || {};
+    setText("candidate-mae", number(candidateMetrics.mean_absolute_error_hits, 2) + " H");
+    setText("candidate-brier", number(candidateMetrics.brier_score_one_or_more_hits, 3));
+    const candidateState = candidate.status === "research_only"
+      ? "Candidato experimental"
+      : "Estado del candidato: " + (candidate.status || "sin estado");
+    const reviewState = candidate.eligible_for_review === true
+      ? "Elegible para revisión manual"
+      : "No marcado para revisión manual";
+    setText(
+      "cohort-candidate-status",
+      candidateState + " · " + reviewState +
+        (candidate.active_in_app === false ? " · no está activo en la proyección de la app" : ""),
+    );
+    setText("cohort-candidate-reason", candidate.reason || "");
+    byId("cohort-candidate-reason").hidden = !candidate.reason;
+  }
+}
+
+async function loadCohortEvaluation() {
+  const button = byId("load-cohort-evaluation");
+  const status = byId("cohort-evaluation-status");
+  button.disabled = true;
+  button.textContent = "Cargando reporte…";
+  status.textContent = "Consultando el último reporte guardado en este equipo…";
+  try {
+    const response = await fetch("/api/evaluation", {
+      headers: { Accept: "application/json" },
+    });
+    const report = await response.json();
+    if (!response.ok) throw new Error(report.detail || "No se pudo cargar el reporte.");
+    renderCohortEvaluation(report);
+  } catch (error) {
+    status.textContent = error.message || "No se pudo cargar el reporte multijugador.";
+  } finally {
+    button.disabled = false;
+    button.textContent = "Cargar reporte";
+  }
+}
+
+function waitForSignal(milliseconds, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      const error = new Error("Evaluación cancelada.");
+      error.name = "AbortError";
+      reject(error);
+      return;
+    }
+    const cleanup = () => signal.removeEventListener("abort", onAbort);
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, milliseconds);
+    const onAbort = () => {
+      clearTimeout(timer);
+      cleanup();
+      const error = new Error("Evaluación cancelada.");
+      error.name = "AbortError";
+      reject(error);
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 async function runHistoricalValidation(analysis) {
   if (validationController) validationController.abort();
   validationController = new AbortController();
@@ -682,7 +1863,7 @@ async function runHistoricalValidation(analysis) {
   renderValidation(null, "Comparando el modelo con juegos posteriores que no usó para estimar…");
 
   try {
-    const response = await fetch("/api/backtest", {
+    const response = await fetch("/api/backtest/jobs", {
       method: "POST",
       signal: controller.signal,
       headers: { "Content-Type": "application/json", Accept: "application/json" },
@@ -691,21 +1872,55 @@ async function runHistoricalValidation(analysis) {
         player_name: analysis.player.name,
         games: analysis.window.games_requested || 20,
         lookback_days: analysis.window.lookback_days || 180,
+        max_predictions: Number(byId("backtest-max-games").value || 100),
       }),
     });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.detail || "No se pudo medir el error histórico.");
+    let job = await response.json();
+    if (!response.ok) throw new Error(job.detail || "No se pudo iniciar la evaluación histórica.");
+    if (!job.id) throw new Error("La evaluación no devolvió un identificador de tarea.");
+
+    while (job.status !== "complete" && job.status !== "error") {
+      if (controller.signal.aborted) return;
+      renderValidation(
+        null,
+        job.status === "queued"
+          ? "Evaluación en cola; el informe actual sigue disponible."
+          : "Evaluando juegos no usados " +
+            (Number.isFinite(Number(job.completed)) && Number.isFinite(Number(job.total))
+              ? Number(job.completed) + " / " + Number(job.total)
+              : "…"),
+      );
+      await waitForSignal(2000, controller.signal);
+      const statusResponse = await fetch("/api/jobs/" + encodeURIComponent(job.id), {
+        signal: controller.signal,
+        headers: { Accept: "application/json" },
+      });
+      job = await statusResponse.json();
+      if (!statusResponse.ok) {
+        throw new Error(job.detail || "No se pudo consultar el avance de la evaluación.");
+      }
+    }
+    if (job.status === "error") {
+      throw new Error(job.message || "La evaluación histórica no se pudo completar.");
+    }
+    const payload = job.result;
+    if (!payload) throw new Error("La evaluación terminó sin resultados.");
     if (latestAnalysis !== analysis) return;
     analysis.validation = payload;
-    saveAnalysisLocally(analysis);
-    renderValidation(payload);
+    const savedLocally = await saveAnalysisLocally(analysis);
+    renderValidation(
+      payload,
+      savedLocally
+        ? null
+        : "Evaluación lista en esta sesión, pero el navegador no pudo guardar el reporte actualizado.",
+    );
   } catch (error) {
     if (error.name === "AbortError" || latestAnalysis !== analysis) return;
     renderValidation(null, error.message || "No se pudo completar la validación histórica.");
   } finally {
     if (latestAnalysis === analysis) {
       validationButton.disabled = false;
-      validationButton.textContent = "Volver a medir";
+      validationButton.textContent = "Medir precisión histórica";
     }
   }
 }
@@ -826,6 +2041,16 @@ byId("copy-report").addEventListener("click", async () => {
     "HR/PA: " + percent(data.per_plate_appearance.home_runs.rate),
     "Hits esperados: " + number(data.projection.hits, 2),
     "Apariciones estimadas: " + number(data.projection.plate_appearances, 1),
+    "Intervalo predictivo de hits: " + number(
+      data.projection.predictive_interval_hits && data.projection.predictive_interval_hits.low,
+      0,
+    ) + "–" + number(
+      data.projection.predictive_interval_hits && data.projection.predictive_interval_hits.high,
+      0,
+    ) + " (aproximado; no calibrado)",
+    "Probabilidad de 0 hits: " + percent(data.projection.probability_zero_hits),
+    "Probabilidad de exactamente 1 hit: " + percent(data.projection.probability_exactly_one_hit),
+    "Probabilidad de 2+ hits: " + percent(data.projection.probability_two_or_more_hits),
     "Probabilidad 1+ hit: " + percent(data.projection.probability_one_or_more_hits),
     "Probabilidad HR: " + percent(data.projection.probability_one_or_more_home_runs),
     "Confianza de muestra: " + data.sample.confidence,
@@ -835,6 +2060,20 @@ byId("copy-report").addEventListener("click", async () => {
   if (data.opponent_pitcher) {
     reportLines.push("Pitcher rival: " + data.opponent_pitcher.name +
       (data.opponent_pitcher.hand ? " · " + data.opponent_pitcher.hand + "HP" : ""));
+  }
+  if (data.game_context && data.game_context.game) {
+    const game = data.game_context.game;
+    reportLines.push(
+      "Juego: " + (game.away && game.away.name || "Visitante") + " @ " +
+        (game.home && game.home.name || "Local") + " · " + gameTimeLabel(game.start_time),
+    );
+    const lineupStatuses = ["away", "home"].map((side) => {
+      const team = data.game_context.teams && data.game_context.teams[side];
+      if (!team) return null;
+      return (team.name || side) + " · " +
+        (team.lineup_status === "confirmed" ? "alineación publicada, puede cambiar" : "alineación no publicada");
+    }).filter(Boolean);
+    if (lineupStatuses.length) reportLines.push("Alineaciones: " + lineupStatuses.join(" · "));
   }
   (data.drivers || []).forEach((driver) => {
     if (driver.hit_rate_change === undefined) return;
@@ -872,9 +2111,24 @@ byId("copy-report").addEventListener("click", async () => {
   }
 });
 
-byId("clear-saved-reports").addEventListener("click", () => {
+byId("clear-saved-reports").addEventListener("click", async () => {
+  await localDataReady;
+  savedReportsCache = [];
+  try {
+    const database = await openLocalDatabase();
+    if (database) {
+      const transaction = database.transaction("reports", "readwrite");
+      const complete = transactionResult(transaction);
+      transaction.objectStore("reports").clear();
+      await complete;
+    }
+  } catch (error) {
+    message("No se pudo borrar el historial local.", "error");
+    return;
+  }
   try {
     localStorage.removeItem(savedReportsKey);
+    localStorage.setItem(legacyMigrationKey, "complete");
   } catch (error) {
     // Continue to clear the visible history even when storage is unavailable.
   }
@@ -882,8 +2136,18 @@ byId("clear-saved-reports").addEventListener("click", () => {
   message("Historial local borrado.", "success");
 });
 
+byId("favorite-player").addEventListener("click", () => {
+  if (latestAnalysis && latestAnalysis.player) {
+    void toggleFavorite(latestAnalysis.player);
+  }
+});
+
 validationButton.addEventListener("click", () => {
   if (latestAnalysis) void runHistoricalValidation(latestAnalysis);
+});
+
+byId("load-cohort-evaluation").addEventListener("click", () => {
+  void loadCohortEvaluation();
 });
 
 function addInstallStep(title, description) {
@@ -936,11 +2200,20 @@ const isInstalled = window.matchMedia("(display-mode: standalone)").matches || n
 installButton.hidden = isInstalled;
 
 if ("serviceWorker" in navigator && window.isSecureContext) {
-  navigator.serviceWorker.register("/static/service-worker.js").catch(() => {
+  navigator.serviceWorker.register("/service-worker.js", { scope: "/" }).catch(() => {
     // Service-worker support is optional; the responsive web app remains usable.
   });
 }
 
-renderSavedReports();
-const latestSavedReport = savedReportsList()[0];
-if (latestSavedReport) showSavedReport(latestSavedReport.analysis, false);
+gameDateInput.value = localDateString(new Date());
+gameDateInput.addEventListener("change", () => {
+  clearGameContext();
+  void loadSchedule();
+});
+byId("previous-game-date").addEventListener("click", () => moveScheduleDate(-1));
+byId("next-game-date").addEventListener("click", () => moveScheduleDate(1));
+byId("load-games").addEventListener("click", () => void loadSchedule());
+byId("clear-game-context").addEventListener("click", clearGameContext);
+
+localDataReady = initializeLocalData();
+void loadSchedule();

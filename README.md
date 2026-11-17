@@ -1,134 +1,153 @@
-# ⚾ Diamond IQ · Baseball Analyzer 2.0
+# ⚾ Diamond IQ · Baseball Analyzer 2.1
 
-**Del historial al siguiente turno.** Diamond IQ convierte datos de Statcast en proyecciones de bateo explicables, con contexto de forma reciente y matchup.
+**El partido, el duelo y una proyección que puedes entender.** Explora la jornada MLB, elige un bateador de la alineación publicada y consulta sus probabilidades de terminar con **0, 1 o 2+ hits**. También puedes analizar su perfil sin seleccionar un partido.
 
-Funciona en la web, iPhone y Android desde una sola interfaz adaptable. El servidor puede quedarse en tu computadora y, en navegadores compatibles, la web se instala como PWA. No requiere cuenta, claves de API ni servicios de pago.
+Web adaptable a Mac, iPhone y Android, con servidor local, reportes guardados y PWA instalable. Sin cuenta ni claves de API. Las consultas nuevas requieren Internet y acceso a los proveedores públicos.
 
-[Inicio rápido](#empezar-en-una-computadora) · [Uso](#uso-del-analizador) · [Modelo estadístico](#cómo-razona-la-proyección) · [Acceso móvil](#abrirlo-en-iphone-o-android-dentro-de-la-misma-red) · [Contribuir](#contribuciones)
+[Empezar en Mac](#empezar-en-mac) · [Guía de uso](#del-partido-a-la-proyección) · [Cómo calcula](docs/modelo.md) · [Evaluación histórica](docs/evaluacion.md) · [Acceso móvil](#iphone-y-android) · [Autor](#autor)
 
-**Tecnología:** Python · FastAPI · Uvicorn · HTML/CSS/JavaScript · pybaseball · pandas · NumPy. Sin Node.js, base de datos ni bibliotecas de interfaz desde CDN.
+Vista de la interfaz con **datos sintéticos de prueba**, no un pronóstico real de MLB:
 
-## En el diamante
+![Resumen de Diamond IQ con datos de prueba](docs/diamond-iq-1440.png)
 
-- Búsqueda de jugadores MLB por nombre y apellido en ese orden (por ejemplo, `Aaron Judge`) o por apellido; selecciona la coincidencia correcta en la lista.
-- Historial de hasta tres años separado de la forma reciente, tendencias por juego y detalle de apariciones al plato.
-- Matchup opcional contra un pitcher rival, con split por mano y tasas permitidas de hits, HR, BB, K y outs.
-- Proyección de hits, HR, BB, ponches y apariciones para el siguiente juego.
-- Tasas ajustadas, incertidumbre, tamaño efectivo de muestra y una explicación legible del modelo.
-- Validación temporal por jugador contra juegos posteriores no usados por el pronóstico, comparada con una referencia de tasa reciente.
-- xBA, velocidad de salida, contacto duro, ángulo de lanzamiento y barrel rate cuando Statcast los informa.
-- Reportes recientes guardados en el navegador del dispositivo para volver a abrirlos, incluso si la red se cae.
-- Interfaz PWA instalable y archivos de la aplicación disponibles sin conexión después de la primera carga HTTPS.
-- FastAPI con documentación interactiva en `/docs`.
+[Ver la vista móvil](docs/diamond-iq-390.png)
 
-## Empezar en una computadora
+## Qué cambia en 2.1
 
-Se requiere Python 3.10 o posterior. Clona el repositorio y prepara el entorno:
+- **Jornada MLB:** fecha, equipos, estadio y pitchers probables; alineación publicada o pendiente, sin confundir roster con titulares.
+- **Búsqueda flexible:** `Aaron Judge`, `Judge Aaron` o `Judge`; ignora mayúsculas y acentos, y sugiere coincidencias ante errores pequeños. Siempre debes seleccionar al jugador correcto.
+- **Resultados explicados:** distribución de hits, rango predictivo, factores del modelo, fuentes y datos faltantes. Los detalles técnicos quedan disponibles para profundizar.
+- **Abridor y relevistas:** separa las apariciones esperadas contra ambos. Usa orden al bate e historial de oportunidades del equipo cuando están disponibles.
+- **Contexto del juego:** pronóstico meteorológico, tipo de techo, repertorio del pitcher, edad, días desde el último juego y carga reciente de relevistas. Estos datos descriptivos no añaden coeficientes numéricos sin validar.
+- **Más historia local:** selector de hasta diez años, descargas incrementales y archivos Parquet consultados con DuckDB. Statcast se limita a datos disponibles desde 2015.
+- **Evaluación ampliada:** hasta 500 juegos por jugador desde la web, en segundo plano; evaluación multijugador por consola y comparación experimental con CatBoost.
+- **Uso diario:** favoritos y reportes en IndexedDB; migración de los reportes del navegador de la versión anterior; lanzador para Mac.
+
+La versión incorpora nuevos métodos y herramientas de evaluación. **No afirma una mejora medida de precisión:** eso requiere ejecutar la evaluación con datos reales y revisar sus resultados.
+
+## Empezar en Mac
+
+Necesitas **Python 3.10 o posterior**. Compruébalo con `python3 --version`; si no lo tienes, instala Python desde [python.org](https://www.python.org/downloads/macos/).
+
+La primera vez, abre Terminal:
 
 ```sh
 git clone https://github.com/sebasclarkv/baseball-analyzer.git
 cd baseball-analyzer
+```
+
+Después abre **Abrir Diamond IQ.command** desde Finder, o ejecútalo en Terminal:
+
+```sh
+./"Abrir Diamond IQ.command"
+```
+
+El lanzador crea `.venv`, instala las dependencias cuando cambian, espera a que el servidor esté listo y abre el navegador. Mantén Terminal abierto; **Control+C** detiene el servidor. La primera instalación necesita Internet. Si descargaste un ZIP y el archivo no tiene permiso de ejecución: `chmod +x "Abrir Diamond IQ.command"`.
+
+También puedes iniciarlo manualmente en macOS o Linux:
+
+```sh
 python3 -m venv .venv
 .venv/bin/python -m pip install --disable-pip-version-check -r requirements.txt
 .venv/bin/python server.py
 ```
 
-En Windows PowerShell, cambia las dos rutas `.venv/bin/python` por `.venv\Scripts\python.exe`.
+Abre **http://127.0.0.1:8000**. En Windows, usa `python -m venv .venv` y sustituye `.venv/bin/python` por `.venv\Scripts\python.exe`.
 
-Abre `http://127.0.0.1:8000`. El servidor escucha solo en tu computadora con esta configuración.
-
-## Abrirlo en iPhone o Android dentro de la misma red
-
-1. Conecta la computadora y el móvil a la misma red Wi-Fi.
-2. Inicia el servidor para aceptar conexiones de esa red:
-
-   ```sh
-   .venv/bin/python server.py --host 0.0.0.0
-   ```
-
-   En Windows usa `.venv\Scripts\python.exe server.py --host 0.0.0.0`.
-3. Averigua la dirección IP privada de la computadora. En macOS puedes usar `ipconfig getifaddr en0`; en Linux, `hostname -I`; en Windows, `ipconfig` y buscar la dirección IPv4 del adaptador Wi-Fi.
-4. En Safari o Chrome del móvil, abre `http://IP-DE-LA-COMPUTADORA:8000`, por ejemplo `http://192.168.1.24:8000`.
-5. Si el sistema lo pregunta, permite conexiones de Python en la red privada. No publiques el puerto en el router.
-
-El modo LAN sirve la web y la API desde tu computadora; las consultas nuevas siguen necesitando que esa computadora tenga Internet para descargar Statcast. El móvil no se conecta directamente a Baseball Savant. El servidor no tiene inicio de sesión: limita el acceso a una red privada y confiable.
-
-Fuera de esa Wi-Fi, conecta ambos dispositivos a la misma VPN privada (por ejemplo, Tailscale). Inicia el servidor enlazándolo a la IP VPN de la computadora, con `.venv/bin/python server.py --host IP-TAILSCALE`, y abre `http://IP-TAILSCALE:8000` en el móvil. No abras el puerto en Internet ni lo publiques en el router. La computadora debe permanecer encendida con el servidor activo.
-
-### Instalar como app
-
-La interfaz se adapta a móviles aunque se abra en el navegador. Para instalarla y usar la caché PWA sin conexión, el navegador requiere una conexión HTTPS. `localhost` se considera segura en la computadora, pero una dirección LAN como `http://192.168.x.x:8000` no. En iOS, abre el sitio con Safari y usa **Compartir → Añadir a pantalla de inicio**. En Android, usa el menú de Chrome y elige **Instalar aplicación** o **Añadir a pantalla de inicio**.
-
-La instalación no incluye un backend en el teléfono: el servidor Python debe seguir ejecutándose en la computadora. En una URL LAN HTTP puedes usar la web normalmente, aunque el modo PWA offline no se habilite.
-
-## Uso del analizador
-
-1. Escribe nombre y apellido en ese orden (por ejemplo, `Aaron Judge`), o busca solo por apellido. Selecciona al bateador correcto de la lista; escribir el nombre sin elegir una coincidencia no inicia el análisis.
-2. Opcionalmente selecciona el pitcher rival confirmado o probable; sin él se calcula el perfil del bateador.
-3. Elige cuántos juegos usar para la forma reciente y un historial de hasta tres años.
-4. Inicia el análisis. La consulta inicial puede tardar mientras Statcast descarga los datos del bateador y, si elegiste un rival, los del pitcher. pybaseball conserva la descarga en caché local.
-5. Lee la proyección, los factores de matchup, la tendencia por juego, las métricas de contacto y la validación histórica del modelo base.
-6. Copia el reporte o vuelve a abrir uno de los reportes guardados en ese navegador.
-
-Los reportes se guardan en el almacenamiento local del navegador, no se sincronizan entre dispositivos y pueden quedar desactualizados. Con PWA instalada desde HTTPS, la caché puede abrir la aplicación y los reportes guardados sin conexión. En la URL LAN HTTP la web requiere que el servidor esté activo. Ninguna opción genera datos actuales sin conexión a Internet y a Statcast.
-
-## Cómo razona la proyección
-
-El selector permite consultar hasta tres años de Statcast y hasta 150 juegos para estimar la forma. El historial largo estima el nivel del jugador; cada aparición pesa menos cuanto más antigua es, con vida media de 365 días. Excluye los juegos reservados para la lectura de forma reciente, para no contar dos veces las mismas apariciones. Un prior MLB de 45 PA estabiliza las tasas cuando el historial es corto o incompleto. El prior de hits es 0.220 por aparición al plato (no el promedio de bateo por turno), de modo que su denominador coincide con H/PA. Así se aprovecha más carrera sin tratar una temporada vieja como si describiera exactamente al jugador de hoy.
-
-La forma reciente se calcula aparte sobre los juegos seleccionados, con vida media de 45 días. Se suaviza primero hacia el nivel de largo plazo y luego su influencia crece solo con el tamaño efectivo de la muestra, hasta un máximo de 45%: una racha reciente puede mover la estimación, pero no reemplaza años de evidencia por unos pocos juegos. Los indicadores de contacto (xBA, EV, contacto duro, ángulo y barrel) se resumen con mayor peso reciente; xBA sí entra directamente en H/PA para bolas bateadas rastreadas. EV, ángulo y barrel se muestran como evidencia de contexto, sin sumarlos otra vez como términos independientes.
-
-Si seleccionas el pitcher rival, el modelo consulta su historial Statcast dentro de la misma ventana. Ajusta hits, HR, BB, K y outs permitidos hacia el promedio MLB con un prior de 120 PA. También toma la mano dominante del pitcher y estima los splits históricos del bateador contra lanzadores zurdos o derechos; ese split se contrae hacia la tasa general con un prior de 80 PA. Finalmente combina la capacidad del bateador y lo que permite el pitcher en escala log5 (odds del bateador × odds permitidas por el pitcher ÷ odds MLB). De esta forma un rival débil o fuerte mueve la expectativa de manera explícita, y muestras cortas tienen menos efecto.
-
-El pronóstico de hits esperados multiplica la tasa ajustada por la distribución reciente de apariciones al plato. La probabilidad de 1+ hit y HR mezcla esa distribución por juego e integra la incertidumbre de la tasa con una predicción beta-binomial; no trata la tasa estimada como una constante exacta. La banda es aproximada y combina incertidumbre tipo Wilson al 90% con la variación de PA. La tabla año por año permite revisar H/PA observado frente a H/PA ajustado por xBA, además de HR, K y velocidad de salida. La tasa de outs incluye ponches; K se muestra aparte como subconjunto, así que esas tasas no se deben sumar.
-
-El panel “Qué mueve la proyección” separa el nivel de largo plazo, el cambio de forma, el split por mano y el aporte del pitcher en puntos porcentuales de H/PA. Si no eliges rival o Baseball Savant no devuelve sus apariciones, el analizador conserva la estimación del bateador y lo indica.
-
-La validación temporal vuelve a pronosticar hasta 25 juegos pasados usando únicamente datos anteriores, con el historial completo disponible en cada fecha. Compara el MAE de hits con la tasa simple de los últimos juegos, y muestra Brier, error de PA y calibración. Evalúa el modelo base del bateador; no aplica al abridor que selecciones para un juego futuro. Es una evaluación por jugador, no demuestra precisión general ni garantiza el resultado de un partido.
-
-El modelo no obtiene una alineación probable ni condiciones futuras de parque, clima, lesión, bullpen o uso del lanzador. El pitcher debe seleccionarse manualmente y puede cambiar antes del juego. Statcast puede entregar xBA incompleto; el informe muestra cuántos contactos contribuyeron. Todos los resultados son estimaciones estadísticas y no asesoría de apuestas.
-
-## Acceso y dependencias
-
-- La aplicación y el almacenamiento de reportes se quedan en la computadora y el navegador elegidos.
-- Se necesita Internet para instalar dependencias, descargar el registro de jugadores y consultar Statcast.
-- Las fuentes de datos públicas son el registro de Chadwick Bureau y Baseball Savant/Statcast. No tienen SLA de este proyecto y pueden limitar solicitudes.
-- No se usan bibliotecas de interfaz desde CDN, cuentas pagadas ni credenciales secretas.
-- Para cambiar puerto: `.venv/bin/python server.py --port 8080`. Para desarrollo: añade `--reload`.
-
-## Desarrollo y versión anterior
-
-La web usa HTML, CSS, JavaScript, FastAPI y Uvicorn; los cálculos usan pybaseball, pandas y NumPy. No requiere Node.js ni una base de datos. Para recarga automática:
+Si ya tienes el repositorio, detén el servidor y actualiza desde su carpeta:
 
 ```sh
+git pull --ff-only origin main
+./"Abrir Diamond IQ.command"
+```
+
+Si Git informa cambios locales, consérvalos antes de actualizar. Para cambiar puerto usa `.venv/bin/python server.py --port 8080`; el lanzador usa el puerto 8000.
+
+## Del partido a la proyección
+
+1. **Elige una fecha y un partido.** El calendario muestra el estado publicado por MLB. Solo los partidos que todavía no empiezan pueden usarse para una proyección previa; los anteriores se pueden consultar como contexto.
+2. **Elige al bateador.** Una alineación publicada permite seleccionar sus titulares. Si está pendiente, el roster ofrece candidatos y el análisis queda marcado como provisional. La alineación puede cambiar después de la consulta.
+3. **Revisa el rival.** Para un partido seleccionado, se usa el abridor probable del equipo contrario cuando MLB lo informa. Sin partido, puedes buscar un pitcher manualmente o dejar ese campo vacío.
+4. **Ajusta el historial si lo necesitas.** Los juegos recientes describen la forma; el historial largo estabiliza la estimación. Más años no hacen que cada juego antiguo tenga el mismo peso que uno reciente.
+5. **Inicia el análisis.** La primera consulta puede tardar al descargar el historial. Las siguientes reutilizan datos locales y descargan los periodos que falten.
+6. **Lee el resumen y sus condiciones.** Revisa 0, 1 y 2+ hits, rango de resultados, oportunidades contra abridor/relevistas y datos pendientes. Puedes abrir los detalles técnicos y ejecutar la evaluación histórica.
+7. **Guarda o recupera el reporte.** Los reportes y favoritos pertenecen a ese navegador; no se sincronizan entre dispositivos. Un reporte guardado conserva su fecha y puede estar desactualizado.
+
+**Sin partido:** busca por nombre y apellido —en cualquiera de los dos órdenes— o por apellido, y selecciona una coincidencia. Por ejemplo, `Aaron Judge`, `Judge Aaron` o `Judge`. Las sugerencias aproximadas no corrigen automáticamente la identidad; comprueba el nombre de la lista. El perfil resultante no supone una alineación confirmada.
+
+## Entender los números
+
+| Lectura | Significado |
+|---|---|
+| Probabilidad de al menos un hit | Qué tan probable es terminar el juego con uno o más hits bajo el escenario analizado |
+| 0, 1 y 2+ hits | Resultados excluyentes cuyas probabilidades suman 100%, salvo redondeo visual |
+| Hits esperados | Promedio de la distribución; **1.2** no significa que el resultado exacto sea uno |
+| Rango predictivo del 90% | Rango aproximado de resultados enteros; su cobertura real todavía requiere evaluación |
+| Muestra disponible | Cantidad de evidencia histórica; no equivale a precisión demostrada |
+| Provisional / datos pendientes | Información incompleta sobre el partido, titularidad o rival |
+
+Ejemplo ilustrativo: una probabilidad del **67%** de al menos un hit también implica un **33%** de ningún hit. Ninguna de esas cifras elimina la variación propia del juego.
+
+Los ajustes actuales y sus supuestos están documentados en [Cómo calcula el modelo](docs/modelo.md). Los factores descriptivos —clima, parque, repertorio, edad y carga reciente— se identifican como contexto; no se presentan como mejoras de precisión ya demostradas.
+
+## Datos y tecnologías
+
+| Fuente | Uso | Acceso |
+|---|---|---|
+| MLB Stats API | Jornada, roster, alineaciones publicadas, estadio e históricos de equipo/pitching | Acceso público habitual sin clave; puede cambiar o fallar |
+| Baseball Savant / Statcast, mediante pybaseball | Historial de lanzamientos, xBA y calidad de contacto | Consulta pública y caché local |
+| Chadwick Bureau | Identidad y búsqueda de jugadores | Registro público mediante pybaseball |
+| Open-Meteo | Pronóstico horario cerca del inicio del partido | Modalidad gratuita para uso no comercial, sujeta a sus [condiciones](https://open-meteo.com/en/pricing) |
+
+**Backend:** Python, FastAPI, pandas, NumPy, DuckDB y Parquet. **Interfaz:** HTML, CSS, JavaScript, cliente API tipado en TypeScript y PWA; el usuario final no necesita Node.js. **Investigación opcional:** CatBoost y scikit-learn en CPU, con calibración y cortes temporales. No se requiere un servicio de IA de pago.
+
+Si una fuente falla, se indican los datos ausentes o la antigüedad de la caché. Una caché parcial de Statcast no se anuncia como un historial completo. Retrosheet queda como fuente futura: esta versión no importa sus archivos ni mezcla épocas históricas con mediciones Statcast inexistentes.
+
+## iPhone y Android
+
+1. Conecta la Mac y el móvil a la misma Wi-Fi.
+2. Inicia el servidor con `.venv/bin/python server.py --host 0.0.0.0`.
+3. Obtén la IP privada de la Mac con `ipconfig getifaddr en0` —o consulta Ajustes del Sistema → Wi-Fi → Detalles—.
+4. Abre `http://IP-DE-TU-MAC:8000` en Safari o Chrome. Ejemplo: `http://192.168.1.24:8000`.
+
+La Mac debe permanecer encendida y el servidor activo. El servidor no incluye inicio de sesión: úsalo dentro de una red privada confiable y no abras el puerto en el router. Fuera de esa Wi-Fi, puedes usar una VPN privada como Tailscale, enlazando el servidor a su IP privada.
+
+Para instalar la PWA y habilitar su caché offline se necesita **HTTPS**, salvo `localhost` en la propia computadora. Una IP LAN con HTTP sirve la web, pero no habilita esas capacidades de PWA. En iOS: Safari → Compartir → Añadir a pantalla de inicio. En Android: menú de Chrome → Instalar aplicación.
+
+La PWA puede abrir la interfaz y reportes ya guardados sin conexión cuando su caché esté disponible. Generar análisis nuevos requiere servidor y acceso a los datos.
+
+## Evaluación y desarrollo
+
+Consulta [la guía de evaluación](docs/evaluacion.md) para descargar historia, evaluar muchos jugadores y comparar un candidato CatBoost. Los resultados locales de esa evaluación se consultan también en `/api/evaluation`.
+
+```sh
+.venv/bin/python -m pip install -r requirements-dev.txt
+.venv/bin/python -m pytest tests -q
 .venv/bin/python server.py --reload
 ```
 
-La aplicación de escritorio Tkinter original sigue en `baseball_analyzer.py`; `server.py` inicia Diamond IQ 2.0.
+Para modificar el cliente API TypeScript (opcional; no se necesita para ejecutar la app):
+
+```sh
+npm ci
+npm run check:frontend
+npm run build:frontend
+```
+
+`frontend/api.ts` genera `baseball_analyzer_v2/static/api.js`, que se incluye en el repositorio y en la caché PWA.
+
+La documentación de la API está en **http://127.0.0.1:8000/docs**. El frontend se sirve desde el mismo servidor; no utiliza CDN. El programa Tkinter original sigue en `baseball_analyzer.py`.
 
 ## Autor
 
-**Sebastian Clark**
-
-- GitHub: [@sebasclarkv](https://github.com/sebasclarkv)
-- X: [@sebasclarkv](https://x.com/sebasclarkv)
+**Sebastian Clark** · [GitHub: @sebasclarkv](https://github.com/sebasclarkv) · [X: @sebasclarkv](https://x.com/sebasclarkv)
 
 ## Contribuciones
 
-Las ideas, mejoras del modelo y reportes de errores son bienvenidos. Para proponer un cambio:
+Las mejoras del modelo, accesibilidad, rendimiento y fuentes de datos son bienvenidas. Haz un fork, crea una rama y abre un Pull Request explicando el cambio y su validación. Para cambios estadísticos, incluye el periodo evaluado, la referencia de comparación y los datos disponibles antes de cada juego.
 
-1. Haz un fork del proyecto.
-2. Crea una rama: `git checkout -b feature/mi-mejora`.
-3. Guarda tus cambios: `git commit -m "Describe la mejora"`.
-4. Sube la rama: `git push origin feature/mi-mejora`.
-5. Abre un Pull Request con el motivo del cambio y los detalles relevantes.
+## Privacidad, agradecimientos y licencia
 
-## Agradecimientos
+No hay cuenta ni analítica de uso. La información se procesa en el servidor local; reportes y favoritos del navegador se guardan en IndexedDB. La caché, historiales y archivo de pronósticos viven en `.cache/diamond/`; puedes cambiar esa ruta con `DIAMOND_DATA_DIR`. Borrar los datos del sitio elimina los reportes del navegador; borrar esa carpeta elimina los datos del servidor.
 
-- Baseball Savant/Statcast y Chadwick Bureau por los datos públicos.
-- La comunidad de `pybaseball` por las herramientas de acceso a Statcast.
-- Quienes prueban, usan y contribuyen a este proyecto.
-
-## Privacidad y licencia
-
-No hay cuenta ni analítica de uso. Las búsquedas y resultados se procesan en el servidor local. Los reportes quedan en el almacenamiento local del navegador y puedes borrarlos limpiando los datos del sitio. Las marcas y datos de MLB pertenecen a sus titulares. Este proyecto conserva la licencia MIT; consulta `LICENSE`.
+Gracias a Baseball Savant/Statcast, Chadwick Bureau, la comunidad de pybaseball y quienes contribuyen al proyecto. Los datos y marcas pertenecen a sus titulares. El código conserva la [licencia MIT](LICENSE); las condiciones de los proveedores de datos son independientes.

@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "Diamond IQ · Baseball Analyzer",
+  "name": "Diamond IQ · Baseball Analyzer 2.1",
   "short_name": "Diamond IQ",
-  "description": "Historial de varias temporadas, forma, matchup bateador-pitcher y proyecciones Statcast.",
+  "description": "Jornada MLB, alineaciones publicadas, contexto del juego y proyecciones Statcast explicables.",
   "lang": "es",
   "start_url": "/",
   "scope": "/",

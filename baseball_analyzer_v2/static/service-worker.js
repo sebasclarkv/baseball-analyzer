@@ -1,8 +1,9 @@
-const CACHE_NAME = "diamond-iq-shell-v3";
+const CACHE_NAME = "diamond-iq-shell-v4";
 const SHELL = [
   "/",
   "/static/styles.css",
   "/static/app.js",
+  "/static/api.js",
   "/static/manifest.webmanifest",
   "/static/icon.svg",
   "/static/apple-touch-icon.png",

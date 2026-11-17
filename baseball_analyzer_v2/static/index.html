@@ -8,12 +8,12 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Diamond IQ">
-    <title>Baseball Analyzer 2.0 · Diamond IQ</title>
+    <title>Baseball Analyzer 2.1 · Diamond IQ</title>
     <link rel="manifest" href="/static/manifest.webmanifest">
     <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
     <link rel="stylesheet" href="/static/styles.css">
-    <script src="/static/app.js" defer></script>
+    <script type="module" src="/static/app.js"></script>
   </head>
   <body>
     <a class="skip-link" href="#main">Saltar al análisis</a>
@@ -28,7 +28,7 @@
       <div class="topbar-meta">
         <span class="live-dot"></span>
         <span>MLB · STATCAST</span>
-        <span class="version-pill">V2.0</span>
+        <span class="version-pill">V2.1</span>
       </div>
       <button id="install-app" class="install-button" type="button">Instalar app</button>
     </header>
@@ -47,13 +47,57 @@
         </div>
       </section>
 
+      <section class="slate-panel" aria-labelledby="slate-title">
+        <div class="slate-heading">
+          <div>
+            <p class="section-kicker">JORNADA MLB</p>
+            <h2 id="slate-title">Del primer lanzamiento al matchup</h2>
+            <p class="slate-intro">Elige un juego, revisa lo que MLB ya publicó y luego selecciona al bateador.</p>
+          </div>
+          <div class="slate-controls">
+            <button id="previous-game-date" class="date-step" type="button" aria-label="Día anterior">‹</button>
+            <label class="date-control">
+              <span class="visually-hidden">Fecha de la jornada</span>
+              <input id="game-date" type="date" aria-label="Fecha de la jornada">
+            </label>
+            <button id="next-game-date" class="date-step" type="button" aria-label="Día siguiente">›</button>
+            <button id="load-games" class="quiet-button" type="button">Ver jornada</button>
+          </div>
+        </div>
+        <p id="schedule-status" class="schedule-status" role="status" aria-live="polite">Cargando juegos de la fecha…</p>
+        <div id="game-list" class="game-list" role="group" aria-label="Juegos MLB de la fecha"></div>
+      </section>
+
+      <section id="game-context-panel" class="game-context-panel" aria-labelledby="game-context-title" hidden>
+        <div class="game-context-heading">
+          <div>
+            <p class="section-kicker">CONTEXTO DEL JUEGO</p>
+            <h2 id="game-context-title">—</h2>
+            <p id="game-context-subtitle" class="context-subtitle">—</p>
+          </div>
+          <button id="clear-game-context" class="quiet-button" type="button">Quitar juego</button>
+        </div>
+        <div id="context-probables" class="context-probables"></div>
+        <div class="team-tabbar">
+          <div id="team-tabs" class="team-tabs" role="group" aria-label="Elegir equipo al bate"></div>
+          <span id="team-lineup-status" class="lineup-status"></span>
+        </div>
+        <p id="lineup-guidance" class="lineup-guidance"></p>
+        <div id="team-roster" class="team-roster" role="group" aria-label="Jugadores del equipo"></div>
+        <div class="context-bottom">
+          <p id="context-weather" class="context-weather"></p>
+          <p id="context-source" class="context-source"></p>
+        </div>
+        <ul id="context-warnings" class="context-warnings" hidden></ul>
+      </section>
+
       <section class="search-panel" aria-labelledby="search-title">
         <div class="search-heading">
           <div>
-            <p class="section-kicker">NUEVO ANÁLISIS</p>
-            <h2 id="search-title">Elige un bateador</h2>
+            <p class="section-kicker">RUTA RÁPIDA</p>
+            <h2 id="search-title">Busca un jugador</h2>
           </div>
-          <span class="search-hint">Busca nombre y apellido</span>
+          <span class="search-hint">Úsalo sin elegir un juego</span>
         </div>
         <form id="search-form" autocomplete="off">
           <div class="form-field player-field">
@@ -91,6 +135,8 @@
               <option value="365">1 año</option>
               <option value="730" selected>2 años</option>
               <option value="1095">3 años</option>
+              <option value="1825">5 años</option>
+              <option value="3650">10 años</option>
             </select>
           </div>
           <button id="analyze-button" class="primary-button" type="submit" disabled>
@@ -109,6 +155,14 @@
 
       <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
 
+      <section id="favorites-panel" class="favorites-panel" aria-labelledby="favorites-title" hidden>
+        <div class="favorites-heading">
+          <div><p class="section-kicker">TU LIBRETA</p><h2 id="favorites-title">Bateadores favoritos</h2></div>
+          <span class="favorites-local-note">Solo en este dispositivo</span>
+        </div>
+        <div id="favorite-list" class="favorite-list" aria-label="Bateadores favoritos"></div>
+      </section>
+
       <section id="empty-state" class="empty-state">
         <div class="empty-diamond" aria-hidden="true"><span></span></div>
         <p class="section-kicker">TU SIGUIENTE VENTAJA</p>
@@ -124,17 +178,23 @@
             <h2 id="player-name">—</h2>
             <p id="player-subtitle" class="player-subtitle">Statcast · —</p>
           </div>
-          <button id="copy-report" class="quiet-button" type="button">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"></path></svg>
-            <span>Copiar reporte</span>
-          </button>
+          <div class="player-actions">
+            <button id="favorite-player" class="quiet-button favorite-toggle" type="button" aria-pressed="false" aria-label="Guardar jugador en favoritos">
+              <span class="favorite-star" aria-hidden="true">☆</span><span class="favorite-label">Guardar</span>
+            </button>
+            <button id="copy-report" class="quiet-button" type="button">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"></path></svg>
+              <span>Copiar reporte</span>
+            </button>
+          </div>
         </div>
 
         <section class="projection-panel" aria-labelledby="projection-title">
           <div class="projection-main">
             <p class="section-kicker">PROYECCIÓN · PRÓXIMO JUEGO</p>
             <h3 id="projection-title"><span id="projected-hits">—</span><small> hits esperados</small></h3>
-            <p><span id="projected-range">—</span> rango estimado · <span id="projected-pa">—</span> apariciones</p>
+            <p><span id="projected-range">—</span> intervalo predictivo · <span id="projected-interval-note">—</span></p>
+            <p class="projection-pa-line"><span id="projected-pa">—</span> apariciones</p>
           </div>
           <div class="projection-side">
             <span class="projection-orbit" aria-hidden="true"><i></i><b></b></span>
@@ -146,6 +206,49 @@
             <span>HISTORIAL · FORMA · CONTEXTO DEL MATCHUP</span>
             <span id="data-window">—</span>
           </div>
+        </section>
+
+        <section id="hit-distribution" class="hit-distribution" aria-labelledby="distribution-title" hidden>
+          <div class="distribution-heading">
+            <div><p class="section-kicker">RESULTADOS POSIBLES</p><h3 id="distribution-title">¿Cuántos hits?</h3></div>
+            <span id="distribution-note" class="distribution-note"></span>
+          </div>
+          <div id="distribution-values" class="distribution-grid">
+            <article class="distribution-outcome">
+              <div><span>0 hits</span><strong id="probability-zero-hits">—</strong></div>
+              <span class="distribution-track"><i id="probability-zero-bar"></i></span>
+            </article>
+            <article class="distribution-outcome distribution-one">
+              <div><span>1 hit</span><strong id="probability-one-hit">—</strong></div>
+              <span class="distribution-track"><i id="probability-one-bar"></i></span>
+            </article>
+            <article class="distribution-outcome distribution-multiple">
+              <div><span>2 o más</span><strong id="probability-two-plus-hits">—</strong></div>
+              <span class="distribution-track"><i id="probability-two-plus-bar"></i></span>
+            </article>
+          </div>
+          <p id="distribution-footnote" class="distribution-footnote"></p>
+        </section>
+
+        <section id="analysis-game-context" class="analysis-game-context" aria-labelledby="analysis-context-title" hidden>
+          <div class="analysis-context-heading">
+            <div><p class="section-kicker">PREVIA DEL JUEGO</p><h3 id="analysis-context-title">Contexto</h3></div>
+            <span id="analysis-lineup-status" class="lineup-status"></span>
+          </div>
+          <div id="analysis-context-body" class="analysis-context-body"></div>
+          <p id="analysis-context-source" class="context-source"></p>
+        </section>
+
+        <section id="data-quality" class="data-quality" aria-labelledby="quality-title" hidden>
+          <div class="quality-heading">
+            <span id="data-quality-indicator" class="quality-indicator"></span>
+            <div><p class="section-kicker">ESTADO DE LA PROYECCIÓN</p><h3 id="quality-title">Calidad de datos</h3></div>
+            <strong id="data-quality-status" class="quality-label"></strong>
+          </div>
+          <p id="quality-summary" class="quality-summary"></p>
+          <ul id="quality-missing" class="quality-list" hidden></ul>
+          <ul id="quality-warnings" class="quality-list quality-warnings" hidden></ul>
+          <p id="quality-as-of" class="context-source"></p>
         </section>
 
         <div class="metric-grid">
@@ -221,52 +324,96 @@
               <div><span>Barrel rate</span><strong id="barrel-rate">—</strong><small>bolas bateadas</small></div>
               <div><span>Historial efectivo</span><strong id="effective-pa">—</strong><small>PA ponderadas sin forma reciente</small></div>
             </div>
-            <div id="model-insight" class="model-insight" role="status"></div>
-            <div class="method-note"><span class="method-mark">i</span><p id="model-note">—</p></div>
-          </article>
-          <article class="content-card drivers-card">
-            <div class="card-heading">
-              <div><p class="section-kicker">LECTURA DEL MODELO</p><h3>Qué mueve la proyección</h3></div>
-              <span class="card-unit">FACTORES</span>
-            </div>
-            <ul id="driver-list" class="driver-list"></ul>
-          </article>
-          <article class="content-card seasons-card">
-            <div class="card-heading">
-              <div><p class="section-kicker">TRAYECTORIA</p><h3>Evolución por temporada</h3></div>
-              <span class="card-unit">STATCAST</span>
-            </div>
-            <p class="season-intro">Compara resultados reales con la calidad estimada de contacto para distinguir rendimiento de variación.</p>
-            <div class="season-table-wrap">
-              <table class="season-table">
-                <thead>
-                  <tr><th>Temporada</th><th>PA</th><th>H/PA</th><th>xBA-aj.</th><th>HR</th><th>K</th><th>EV</th></tr>
-                </thead>
-                <tbody id="season-rows"></tbody>
-              </table>
-            </div>
+            <p id="model-insight" class="model-insight" role="status"></p>
           </article>
         </div>
-        <div class="analysis-grid validation-grid">
-          <article class="content-card validation-card">
-            <div class="card-heading">
-              <div><p class="section-kicker">CONTROL DE CALIDAD</p><h3>¿Cómo habría acertado?</h3></div>
-              <span class="card-unit">JUEGOS NO USADOS</span>
-            </div>
-            <p class="validation-intro">Repite la predicción del bateador en juegos pasados usando solo datos previos y la compara con una tasa reciente. Evalúa el modelo base; no reutiliza el pitcher seleccionado para el próximo juego.</p>
-            <div id="validation-metrics" class="validation-metrics" hidden>
-              <div><span>Juegos evaluados</span><strong id="validation-count">—</strong></div>
-              <div><span>Error medio de hits</span><strong id="validation-mae">—</strong></div>
-              <div><span>Referencia reciente</span><strong id="validation-baseline">—</strong></div>
-              <div><span>Brier · 1+ hit</span><strong id="validation-brier">—</strong></div>
-              <div><span>Error de calibración</span><strong id="validation-calibration">—</strong></div>
-            </div>
-            <div class="validation-actions">
-              <p id="validation-status" role="status" aria-live="polite">La validación se calcula tras el análisis.</p>
-              <button id="run-validation" class="quiet-button" type="button">Medir precisión histórica</button>
-            </div>
-          </article>
-        </div>
+        <details class="technical-details">
+          <summary><span>Detalles técnicos y fuentes</span><span class="details-hint">MÉTODO · HISTORIAL · VALIDACIÓN</span></summary>
+          <div class="technical-grid">
+            <section class="technical-block">
+              <p class="section-kicker">MODELO</p>
+              <h3>Cómo se calcula</h3>
+              <p id="model-note" class="method-copy">—</p>
+              <div id="model-insight-detail" class="model-insight-detail"></div>
+            </section>
+            <section class="technical-block">
+              <p class="section-kicker">FACTORES</p>
+              <h3>Señales utilizadas</h3>
+              <ul id="driver-list" class="driver-list"></ul>
+            </section>
+            <section class="technical-block seasons-block">
+              <p class="section-kicker">TRAYECTORIA</p>
+              <h3>Evolución por temporada</h3>
+              <p class="season-intro">Resultados observados y calidad estimada de contacto. xBA no sustituye el resultado real.</p>
+              <div class="season-table-wrap">
+                <table class="season-table">
+                  <thead>
+                    <tr><th>Temporada</th><th>PA</th><th>H/PA</th><th>xBA-aj.</th><th>HR</th><th>K</th><th>EV</th></tr>
+                  </thead>
+                  <tbody id="season-rows"></tbody>
+                </table>
+              </div>
+            </section>
+            <section class="technical-block validation-block">
+              <div class="card-heading">
+                <div><p class="section-kicker">EVALUACIÓN HISTÓRICA</p><h3>Juegos que no usó el modelo</h3></div>
+                <span class="card-unit">BACKTEST</span>
+              </div>
+              <p class="validation-intro">El backtest evalúa el modelo base con datos disponibles antes de cada juego. No mide precisión del pitcher, clima ni de una alineación probable.</p>
+              <p class="cohort-report-note">Para evaluar varios jugadores, ejecuta la CLI de investigación del proyecto. <a href="/api/evaluation" target="_blank" rel="noopener">Ver el último reporte de cohortes</a> cuando esté disponible.</p>
+              <div id="validation-metrics" class="validation-metrics" hidden>
+                <div><span>Juegos evaluados</span><strong id="validation-count">—</strong></div>
+                <div><span>Error medio de hits</span><strong id="validation-mae">—</strong></div>
+                <div><span>Referencia reciente</span><strong id="validation-baseline">—</strong></div>
+                <div><span>Brier · 1+ hit</span><strong id="validation-brier">—</strong></div>
+                <div><span>Error de calibración</span><strong id="validation-calibration">—</strong></div>
+              </div>
+              <div class="validation-actions">
+                <p id="validation-status" role="status" aria-live="polite">La validación se calcula tras el análisis.</p>
+                <div class="validation-controls">
+                  <label for="backtest-max-games">Juegos a evaluar</label>
+                  <select id="backtest-max-games">
+                    <option value="25">25</option>
+                    <option value="50">50</option>
+                    <option value="100" selected>100</option>
+                    <option value="250">250</option>
+                    <option value="500">500</option>
+                  </select>
+                  <button id="run-validation" class="quiet-button" type="button">Medir precisión histórica</button>
+                </div>
+              </div>
+              <section class="cohort-evaluation" aria-labelledby="cohort-evaluation-title">
+                <div class="cohort-heading">
+                  <div><p class="section-kicker">REPORTE DE COHORTE</p><h4 id="cohort-evaluation-title">Evaluación multijugador guardada</h4></div>
+                  <button id="load-cohort-evaluation" class="quiet-button" type="button">Cargar reporte</button>
+                </div>
+                <p id="cohort-evaluation-status" class="cohort-evaluation-status" role="status" aria-live="polite">Carga el último reporte generado por la CLI en este equipo.</p>
+                <div id="cohort-evaluation-report" class="cohort-report" hidden>
+                  <p id="cohort-report-overview" class="cohort-report-overview"></p>
+                  <div class="cohort-metrics">
+                    <div><span>Error medio de hits</span><strong id="cohort-mae">—</strong></div>
+                    <div><span>Brier · 1+ hit</span><strong id="cohort-brier">—</strong></div>
+                    <div><span>Cobertura del intervalo</span><strong id="cohort-coverage">—</strong></div>
+                    <div><span>Referencia reciente · MAE</span><strong id="cohort-baseline-mae">—</strong></div>
+                    <div><span>Referencia reciente · Brier</span><strong id="cohort-baseline-brier">—</strong></div>
+                    <div><span>Referencia reciente · cobertura</span><strong id="cohort-baseline-coverage">—</strong></div>
+                  </div>
+                  <p id="cohort-scope" class="cohort-scope"></p>
+                  <p class="cohort-caution">El estado y las métricas describen el reporte; por sí solos no certifican precisión ni calibración.</p>
+                  <section id="cohort-candidate" class="cohort-candidate" hidden aria-labelledby="cohort-candidate-title">
+                    <div><p class="section-kicker">CANDIDATO EXPERIMENTAL</p><h5 id="cohort-candidate-title">—</h5></div>
+                    <p id="cohort-candidate-status"></p>
+                    <p id="cohort-candidate-reason" class="cohort-candidate-reason" hidden></p>
+                    <div class="cohort-metrics cohort-candidate-metrics">
+                      <div><span>MAE</span><strong id="candidate-mae">—</strong></div>
+                      <div><span>Brier</span><strong id="candidate-brier">—</strong></div>
+                    </div>
+                  </section>
+                </div>
+              </section>
+            </section>
+          </div>
+        </details>
         <p class="source-note">Fuente: Baseball Savant · Estimaciones estadísticas, no resultados garantizados.</p>
       </section>
     </main>
@@ -281,7 +428,7 @@
     </dialog>
 
     <footer class="site-footer">
-      <span>DIAMOND IQ <i></i> BASEBALL ANALYZER 2.0</span>
+      <span>DIAMOND IQ <i></i> BASEBALL ANALYZER 2.1</span>
       <span>Construido con datos públicos de MLB Statcast</span>
     </footer>
   </body>

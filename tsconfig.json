@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "strict": true,
+    "lib": ["ES2022", "DOM"],
+    "rootDir": "frontend",
+    "outDir": "baseball_analyzer_v2/static",
+    "noEmitOnError": true
+  },
+  "include": ["frontend/**/*.ts"]
+}
