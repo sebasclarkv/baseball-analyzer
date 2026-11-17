@@ -18,7 +18,6 @@ CACHE_ROOT = APP_ROOT / ".pybaseball" / "cache"
 LOCAL_CACHE = APP_ROOT / ".cache"
 
 os.environ.setdefault("PYBASEBALL_CACHE", str(CACHE_ROOT))
-os.environ.setdefault("XDG_CACHE_HOME", str(LOCAL_CACHE))
 os.environ.setdefault("MPLCONFIGDIR", str(LOCAL_CACHE / "matplotlib"))
 CACHE_ROOT.mkdir(parents=True, exist_ok=True)
 (LOCAL_CACHE / "matplotlib").mkdir(parents=True, exist_ok=True)

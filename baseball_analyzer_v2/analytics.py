@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
-from math import exp, exp2, lgamma, log, sqrt
+from math import exp, lgamma, log, sqrt
 from typing import Any
 
 import numpy as np
@@ -146,7 +146,7 @@ def _date_weights(
         [max(0, (today - day).days) for day in frame["_game_day"]], dtype=float
     )
     return pd.Series(
-        [exp2(-age / half_life_days) for age in ages],
+        [2.0 ** (-age / half_life_days) for age in ages],
         index=frame.index,
         dtype=float,
     )

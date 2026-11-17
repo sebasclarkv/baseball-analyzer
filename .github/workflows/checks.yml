@@ -23,6 +23,7 @@ jobs:
             browser: webkit
     env:
       DIAMOND_TEST_BROWSER: ${{ matrix.browser }}
+      PLAYWRIGHT_BROWSERS_PATH: "0"
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
