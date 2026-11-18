@@ -1,0 +1,196 @@
+.workspace-heading {
+  margin: 12px 0 18px;
+  padding: clamp(22px, 4vw, 44px);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: linear-gradient(110deg, #143d36, #102a35 66%, #162c43);
+}
+
+.workspace-heading h1 {
+  margin: 0 0 8px;
+  font: 500 clamp(28px, 4.5vw, 52px) / 1.12 var(--display);
+}
+
+.workspace-heading p {
+  max-width: 62ch;
+  margin: 0;
+  color: var(--chalk-dim);
+  font-size: clamp(15px, 1.5vw, 18px);
+  line-height: 1.55;
+}
+
+.workspace-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 0 18px;
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--night-raised);
+}
+
+.workspace-tabs button {
+  display: grid;
+  align-content: start;
+  gap: 3px;
+  min-height: 65px;
+  padding: 10px clamp(12px, 2.4vw, 24px);
+  border: 1px solid transparent;
+  border-bottom-width: 3px;
+  border-radius: 5px;
+  color: var(--chalk);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.workspace-tabs button[aria-selected="true"] {
+  border-color: #496953;
+  border-bottom-color: var(--grass-light);
+  background: #1a352f;
+}
+
+.workspace-tabs button:hover {
+  background: #19342f;
+}
+
+.workspace-tabs strong { font-size: clamp(17px, 2.2vw, 21px); }
+.workspace-tabs span { color: var(--chalk-dim); font-size: clamp(13px, 1.35vw, 15px); }
+
+.workspace-panel:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 5px;
+}
+
+#workspace-prep > .slate-panel { margin-top: 0; }
+#workspace-prep .slate-intro { max-width: 62ch; font-size: 15px; }
+#workspace-prep .slate-intro a { color: #b7dfaa; text-underline-offset: 3px; }
+#workspace-prep .team-name { font-size: clamp(13px, 1.2vw, 16px); }
+#workspace-prep .game-card-venue { font-size: 13px; }
+
+.live-discovery {
+  overflow-wrap: anywhere;
+  margin: 0 0 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--night-raised);
+}
+
+.live-discovery > summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 50px;
+  padding: 10px 18px;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.live-discovery > summary::before {
+  width: 7px;
+  height: 7px;
+  transform: rotate(-45deg);
+  border: solid var(--grass-light);
+  border-width: 0 2px 2px 0;
+  content: "";
+}
+
+.live-discovery[open] > summary::before { transform: rotate(45deg); }
+.live-discovery summary:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.live-discovery-date { margin-left: auto; color: var(--chalk-dim); font-size: 14px; font-weight: 500; }
+
+.live-discovery-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(14px, 2vw, 22px);
+  padding: 0 clamp(14px, 2.2vw, 24px) clamp(14px, 2.2vw, 24px);
+}
+
+.live-picker,
+.live-guide {
+  min-width: 0;
+  padding: clamp(16px, 2vw, 24px);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.live-picker h2,
+.live-guide h2 {
+  margin: 0 0 14px;
+  font: 500 clamp(23px, 2.7vw, 32px) / 1.18 var(--display);
+}
+
+.live-picker-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+}
+
+.live-picker-controls label {
+  display: grid;
+  gap: 4px;
+  max-width: 100%;
+  color: var(--chalk-dim);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.live-picker-controls input {
+  width: min(170px, 100%);
+  min-width: 0;
+  min-height: 44px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--chalk);
+  background: var(--night);
+}
+
+.live-picker-controls button,
+.replay-entry button { min-height: 44px; font-size: 14px; }
+.live-picker-status,
+.replay-entry p { color: var(--chalk-dim); font-size: 15px; line-height: 1.5; }
+.live-picker-status { margin: 12px 0; }
+
+.live-game-list { display: grid; gap: 8px; }
+.live-game-choice {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  min-height: 54px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--chalk);
+  background: var(--night-raised);
+  text-align: left;
+  cursor: pointer;
+}
+
+.live-game-choice:hover,
+.live-game-choice[aria-pressed="true"] { border-color: var(--grass-light); }
+.live-game-choice strong { font-size: 16px; }
+.live-game-choice span { color: var(--chalk-dim); font-size: 14px; }
+.live-game-choice[data-kind="live"] span { color: #b7dfaa; }
+
+.replay-entry { display: grid; justify-items: start; gap: 7px; margin-top: 14px; }
+.replay-entry p { margin: 0; }
+.live-guide ol { display: grid; gap: 10px; margin: 0; padding-left: 1.45em; }
+.live-guide li, .odds-guide p { max-width: 56ch; color: var(--chalk-dim); font-size: 15px; line-height: 1.55; }
+.live-guide li strong, .odds-guide summary { color: var(--chalk); }
+.odds-guide { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.odds-guide summary { min-height: 24px; font-size: 15px; font-weight: 700; cursor: pointer; }
+.odds-guide p { margin: 8px 0 0; }
+#workspace-live .live-board { margin-top: 0; }
+.live-play-detail { margin-top: 4px; color: var(--chalk-dim); font-size: 14px; }
+.live-play-detail summary { cursor: pointer; }
+
+@media (max-width: 740px) {
+  .workspace-heading { margin-top: 8px; }
+  .workspace-tabs button { min-height: 62px; }
+  .live-discovery-grid { grid-template-columns: minmax(0, 1fr); }
+}

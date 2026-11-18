@@ -130,7 +130,7 @@ def test_saved_game_recovery_matches_the_probable_opponent(live_app, browser, mo
     game.click()
     batter.click()
     analyze.click()
-    expect(page.locator("#player-subtitle")).to_contain_text("vs Abridor local", timeout=12000)
+    expect(page.locator("#player-subtitle")).to_contain_text("Abridor local", timeout=12000)
 
     def fail_unavailable(request):
         raise web.HTTPException(502, "Fuente indisponible")

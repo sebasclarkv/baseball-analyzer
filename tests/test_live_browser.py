@@ -122,6 +122,7 @@ def test_historical_replay_loads_two_fixed_snapshots(live_app, browser):
 
     page.route(re.compile(r"/api/games/777283/live(?:/hitter)?(?:\?.*)?$"), respond)
     page.goto(live_app)
+    page.get_by_role("tab", name="En vivo", exact=True).click()
     page.locator("#try-live-replay").click()
     expect(page.locator("#live-mode")).to_have_text("Repetición")
     expect(page.locator("#live-home-team .live-runs")).to_have_text("1")
@@ -130,6 +131,10 @@ def test_historical_replay_loads_two_fixed_snapshots(live_app, browser):
     expect(page.locator("#live-home-team .live-runs")).to_have_text("4")
     expect(page.get_by_role("button", name="Después del jonrón")).to_have_attribute("aria-pressed", "true")
     page.locator("#live-estimate").click()
+    expect(page.locator("#live-estimate-result")).to_contain_text("25% de hit en este turno")
+    page.get_by_role("tab", name="Previa", exact=True).click()
+    expect(page.locator("#live-panel")).to_be_hidden()
+    page.get_by_role("tab", name="En vivo", exact=True).click()
     expect(page.locator("#live-estimate-result")).to_contain_text("25% de hit en este turno")
     page.clock.fast_forward(32000)
     assert queries == [("GET", "2025-07-01T20:45:40Z"), ("GET", "2025-07-01T20:47:10Z"), ("POST", "2025-07-01T20:47:10Z")]

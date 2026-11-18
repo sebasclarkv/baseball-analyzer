@@ -1,4 +1,4 @@
-# ⚾ Diamond IQ · Baseball Analyzer 3.0
+# ⚾ Diamond IQ · Baseball Analyzer 3.1
 
 **El partido, el duelo y una proyección que puedes entender.** Explora la jornada MLB, elige un bateador de la alineación publicada y consulta sus probabilidades de terminar con **0, 1 o 2+ hits**. También puedes analizar su perfil sin seleccionar un partido.
 
@@ -12,11 +12,17 @@ Vista de la interfaz con **datos sintéticos de prueba**, no un pronóstico real
 
 [Ver el análisis en móvil](docs/diamond-iq-390.png) · [Ver el marcador móvil con un juego real ya finalizado](docs/marcador-390.png)
 
-## Qué cambia en 3.0
+## Qué cambia en 3.1
+
+**Previa** y **En vivo** tienen pestañas separadas. En Previa, busca `Shohei Ohtani` o abre un partido y elige un bateador de la alineación. El reporte muestra primero la probabilidad de 1+ hit y deja visibles el rango, la muestra y las condiciones del cálculo.
+
+La pestaña En vivo tiene su propia jornada y guía. Los paneles se alinean lado a lado en ordenador y se apilan en móvil. Puedes cambiar de pestaña y volver a tu tablero. El seguimiento automático se detiene mientras estás en Previa.
+
+[Ver En vivo en ordenador](docs/en-vivo-1440.png) · [Ver En vivo en móvil](docs/en-vivo-390.png)
+
+## Qué cambió en 3.0
 
 El **modo En vivo** reúne marcador, cuenta, corredores, lanzador y bateador actuales. Muestra la probabilidad de victoria de la última aparición completada para la que MLB publicó ese dato y estima hits adicionales del bateador según las oportunidades que tenga. Incluye una repetición de un juego real para recorrer un cambio de ventaja.
-
-[Ver el tablero en vivo en móvil](docs/en-vivo-390.png)
 
 ## Qué cambió en 2.2
 
@@ -31,7 +37,7 @@ En la temporada reservada de 2025, el perfil del bateador obtuvo **2.62% menos e
 ## Qué incluye Diamond IQ
 
 - **Jornada MLB:** fecha, equipos, estadio y pitchers probables; alineación publicada o pendiente, sin confundir roster con titulares.
-- **Búsqueda flexible:** `Aaron Judge`, `Judge Aaron` o `Judge`; ignora mayúsculas y acentos, y sugiere coincidencias ante errores pequeños. Siempre debes seleccionar al jugador correcto.
+- **Búsqueda flexible:** admite `Shohei Ohtani`, `Ohtani Shohei` o `Ohtani`. La app ignora mayúsculas y acentos y sugiere coincidencias si cometes un error pequeño. Selecciona el jugador correcto de la lista.
 - **Resultados explicados:** distribución de hits, rango predictivo, factores del modelo, fuentes y datos faltantes. Los detalles técnicos quedan disponibles para profundizar.
 - **Abridor y relevistas:** separa las apariciones esperadas contra ambos. Usa orden al bate e historial de oportunidades del equipo cuando están disponibles.
 - **Contexto del juego:** pronóstico meteorológico, tipo de techo, repertorio del pitcher, edad, días desde el último juego y carga reciente de relevistas. Estos datos descriptivos no añaden coeficientes numéricos sin validar.
@@ -81,7 +87,7 @@ Si Git informa cambios locales, consérvalos antes de actualizar. Para cambiar p
 
 ## Seguir un partido en vivo
 
-1. En **Jornada MLB**, selecciona un partido en curso. El tablero se actualiza cada **15 segundos** mientras se está siguiendo el juego. Puedes pausar y volver a actualizarlo.
+1. Abre la pestaña **En vivo**, elige la fecha y selecciona un partido en curso. El tablero consulta cada **15 segundos**. Puedes pausar el seguimiento o pulsar **Actualizar ahora**. Los partidos finalizados también se pueden abrir para ver su resultado.
 2. Lee entrada, cuenta, outs y corredores. El porcentaje de victoria de cada equipo se atribuye a **MLB Stats API** y corresponde a la última aparición completada para la que MLB publicó el dato. El marcador y la cuenta pueden estar más adelantados.
 3. Selecciona un bateador que siga en la alineación y solicita la estimación. El tablero separa sus hits oficiales de la probabilidad de registrar **al menos un hit adicional** con 1, 2 o 3 oportunidades. La cifra depende del pitcher usado y de que el bateador tenga esas oportunidades, que pueden no llegar.
 4. Revisa la hora del dato. Si cambia el estado del juego, vuelve a calcular para el nuevo turno. La primera consulta de Statcast puede tardar más que la actualización del tablero.
@@ -98,7 +104,7 @@ Usa **Ver una jugada de ejemplo** si quieres probarlo sin un partido en curso. L
 6. **Lee el resumen y sus condiciones.** Revisa 0, 1 y 2+ hits, rango de resultados, oportunidades contra abridor/relevistas y datos pendientes. Puedes abrir los detalles técnicos y ejecutar la evaluación histórica.
 7. **Abre la libreta.** Fija reportes, filtra por partido o exporta un respaldo local. Puedes importarlo desde otro dispositivo. Un reporte conserva su fecha y las opciones usadas para calcularlo.
 
-**Sin partido:** busca por nombre y apellido —en cualquiera de los dos órdenes— o por apellido, y selecciona una coincidencia. Por ejemplo, `Aaron Judge`, `Judge Aaron` o `Judge`. Las sugerencias aproximadas no corrigen automáticamente la identidad; comprueba el nombre de la lista. El perfil resultante no supone una alineación confirmada.
+**Sin partido:** escribe `Shohei Ohtani`, `Ohtani Shohei` u `Ohtani` y selecciona la coincidencia de la lista. Puedes calcular un perfil histórico con o sin pitcher rival. Para proyectar un juego concreto, selecciona primero el partido y luego al bateador de ese equipo.
 
 ## Entender los números
 
@@ -139,8 +145,8 @@ Después de instalar las dependencias, ejecuta desde la carpeta del proyecto:
 No necesitas iniciar el servidor. El diagnóstico consulta las fuentes por HTTPS y comprueba que sus respuestas funcionen con los adaptadores del analizador:
 
 - **MLB:** jornada histórica, contexto del partido, rosters e historial de oportunidades del equipo.
-- **Statcast:** descarga una semana de Aaron Judge mediante pybaseball, comprueba jugador y fechas, guarda en Parquet temporal y calcula la distribución de hits.
-- **Chadwick:** descarga el registro y verifica la búsqueda `Judge Aaron` con el buscador de la app.
+- **Statcast:** descarga una semana histórica de un bateador de muestra mediante pybaseball, verifica el jugador y fechas y calcula la distribución de hits.
+- **Chadwick:** descarga el registro y verifica una búsqueda con el apellido primero.
 - **Open-Meteo:** obtiene temperatura y viento para mañana en las coordenadas de Yankee Stadium.
 
 Cada ejecución exige solicitudes de red: no acepta la caché de la app ni la de pybaseball como prueba de conexión. Conserva tus historiales y guarda el diagnóstico en **`.cache/connection-report.json`**, con hora UTC, proveedor, estado HTTP y duración. Ese archivo no se publica en GitHub. Una conexión válida no demuestra precisión predictiva.
@@ -153,7 +159,7 @@ Cada ejecución exige solicitudes de red: no acepta la caché de la app ni la de
 | `partial` | Hubo alguna solicitud fallida; no cuenta como validación completa |
 | `skipped` | Una comprobación previa falló; no se intentó la dependiente |
 
-El comando termina con código **0** solo si todas las comprobaciones pasan; en otro caso devuelve **1**. La muestra predeterminada abarca del 1 al 7 de julio de 2025. Puedes cambiarla por otra semana histórica con juegos de Aaron Judge usando `--sample-date AAAA-MM-DD`, o ajustar el tiempo de espera por solicitud con `--timeout 45`. Un `429` significa límite del proveedor: respeta `Retry-After` antes de repetir.
+El comando termina con código **0** cuando todas las comprobaciones pasan y devuelve **1** si hay fallos. La muestra predeterminada abarca del 1 al 7 de julio de 2025. Usa `--sample-date AAAA-MM-DD` para cambiar la semana de muestra o `--timeout 45` para ajustar el tiempo de espera por solicitud. Si el proveedor devuelve `429`, respeta `Retry-After` antes de repetir.
 
 En un entorno cloud con red restringida, permite **`statsapi.mlb.com`**, **`baseballsavant.mlb.com`**, **`api.open-meteo.com`**, **`github.com`** y **`codeload.github.com`**. Guardar un borrador de configuración no activa esos permisos: debes guardar y publicar la configuración desde los ajustes del entorno y volver a ejecutar el diagnóstico cuando esté aplicada. No necesitas claves de API ni desactivar la verificación TLS.
 

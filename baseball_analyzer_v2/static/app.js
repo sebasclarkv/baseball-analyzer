@@ -1,7 +1,8 @@
 import { loadGamesApi, loadContextApi } from "./api.js";
 import { initMatchupTools } from "./matchup-tools.js";
-import { gameFollowKind, initLiveBoard } from "./live-board.js";
+import { followLiveGame, gameFollowKind, initLiveBoard } from "./live-board.js";
 import { decodeReportBackup, encodeReportBackup, mergeReport, newestReports, normalizeReport, reportIdentity } from "./report-notebook.js";
+import { initWorkspaceTabs } from "./workspace-tabs.js";
 
 const byId = (id) => document.getElementById(id);
 const form = byId("search-form");
@@ -221,10 +222,8 @@ function updateAnalyzeLabel() {
   const label = analyzeButton.querySelector("span");
   if (!label || analyzeButton.classList.contains("is-loading")) return;
   label.textContent = selectedGameForAnalysis
-    ? "Proyectar este juego"
-    : selectedPitcher
-      ? "Proyectar matchup"
-      : "Analizar bateador";
+    ? "Proyectar para este juego"
+    : "Calcular proyección";
 }
 
 function resetAnalyzeButton() {
@@ -610,16 +609,18 @@ function renderGames(payload) {
     card.type = "button";
     card.className = "game-card";
     card.dataset.gameId = String(game.id);
-    card.setAttribute("aria-pressed", String(
-      selectedGame && String(selectedGame.id) === String(game.id),
-    ));
+    card.setAttribute("aria-pressed", String(Boolean(selectedGame && String(selectedGame.id) === String(game.id))));
     card.setAttribute(
       "aria-label",
       (game.away && game.away.name || "Visitante") + " contra " +
         (game.home && game.home.name || "Local") + " · " +
         displayGameStatus(game) + " · " + gameTimeLabel(game.start_time),
     );
-    card.addEventListener("click", () => void selectGame(game));
+    const inProgress = gameFollowKind(game) === "live";
+    card.addEventListener("click", () => {
+      if (inProgress) followLiveGame(game, card);
+      else void selectGame(game);
+    });
 
     const top = document.createElement("span");
     top.className = "game-card-top";
@@ -627,8 +628,8 @@ function renderGames(payload) {
     appendText(
       top,
       "span",
-      "game-status game-status-" + (gameFollowKind(game) === "live" ? "live" : isPregameGame(game) ? "pregame" : "closed"),
-      displayGameStatus(game),
+      "game-status game-status-" + (inProgress ? "live" : isPregameGame(game) ? "pregame" : "closed"),
+      inProgress ? "Ver en vivo →" : displayGameStatus(game),
     );
     card.appendChild(top);
 
@@ -1322,13 +1323,13 @@ form.addEventListener("submit", async (event) => {
   analyzeButton.disabled = true;
   analyzeButton.classList.add("is-loading");
   analyzeButton.querySelector("span").textContent = request.game_id
-    ? "Proyectando juego"
-    : "Analizando Statcast";
+    ? "Calculando previa…"
+    : "Calculando perfil…";
   updateSearchMessage("");
   message(
     request.game_id
-      ? "Consultando alineación, pitcher probable e historial disponible antes del juego…"
-      : "Descargando el historial Statcast y ajustando forma, contacto y matchup…",
+      ? "Consultando la alineación, el abridor rival y el historial disponible…"
+      : "Consultando el historial de bateo en Statcast…",
     "loading",
   );
 
@@ -1400,7 +1401,7 @@ function setTrack(id, value, max) {
   track.style.width = normalized + "%";
 }
 
-function renderHitDistribution(projection, explanation) {
+function renderHitDistribution(projection) {
   const panel = byId("hit-distribution");
   const valuesNode = byId("distribution-values");
   const outcomes = [
@@ -1416,15 +1417,13 @@ function renderHitDistribution(projection, explanation) {
   const coherent = valid && Math.abs(total - 1) <= 0.015;
   panel.hidden = false;
   valuesNode.hidden = !coherent;
-  setText(
-    "distribution-note",
-    coherent ? "Probabilidades por juego · estimación" : "No disponible",
-  );
+  byId("distribution-note").hidden = coherent;
+  setText("distribution-note", "No disponible");
   setText(
     "distribution-footnote",
     coherent
-      ? "Los tres resultados suman 100%. Son probabilidades estimadas, no una garantía."
-      : "La fuente no devolvió una distribución completa para este informe; no se deriva de hits esperados.",
+      ? "Más de 0.5 hits equivale a 1 o más y menos equivale a 0. En una línea de 1.5, más equivale a 2 o más y menos a 0 o 1."
+      : "Este reporte no incluye probabilidades para 0, 1 y 2 o más hits.",
   );
   if (!coherent) return;
 
@@ -1432,15 +1431,9 @@ function renderHitDistribution(projection, explanation) {
     setText(valueId, percent(projection[sourceKey]));
     setTrack(barId, projection[sourceKey] * 100, 100);
   });
-  const limitation = Array.isArray(explanation && explanation.limitations)
-    ? explanation.limitations.find((item) => /independent|independ|apariciones/i.test(item))
-    : null;
-  if (limitation) {
-    setText("distribution-footnote", limitation);
-  }
 }
 
-function renderQuality(quality, explanation) {
+function renderQuality(quality) {
   const panel = byId("data-quality");
   if (!quality) {
     panel.hidden = true;
@@ -1449,13 +1442,12 @@ function renderQuality(quality, explanation) {
   panel.hidden = false;
   panel.className = "data-quality quality-" + (quality.status || "provisional");
   const ready = quality.status === "ready";
-  setText("data-quality-status", ready ? "Lista" : "Provisional");
+  setText("data-quality-status", ready ? "Contexto disponible" : "Provisional");
   setText(
     "quality-summary",
-    explanation && explanation.summary ||
-      (ready
-        ? "Los datos requeridos para esta proyección están disponibles."
-        : "Faltan datos para completar el contexto; revisa los elementos indicados."),
+    ready
+      ? "El modelo contó con los datos de contexto de este escenario."
+      : "Revisa los datos pendientes y los supuestos de esta proyección.",
   );
   const missing = Array.isArray(quality.missing) ? quality.missing : [];
   const missingList = byId("quality-missing");
@@ -1649,53 +1641,71 @@ function renderAnalysis(data) {
   const player = data.player;
   const model = data.model || {};
   const explanation = data.explanation || {};
+  const game = data.game_context?.game;
+  const matchup = data.game_context?.matchup ?? data.matchup;
+  const historicalGames = data.window.games_available ?? data.window.games_found;
+  const historicalAppearances = data.sample.plate_appearances;
+  const formatCount = new Intl.NumberFormat("es-MX");
+  const sampleLabel = [
+    Number.isFinite(historicalAppearances) ? formatCount.format(historicalAppearances) + " apariciones al plato" : "",
+    Number.isFinite(historicalGames) ? formatCount.format(historicalGames) + (historicalGames === 1 ? " juego histórico" : " juegos históricos") : "",
+  ].filter(Boolean).join(" · ");
 
   emptyState.hidden = true;
   dashboard.hidden = false;
   setText("player-name", player.name);
   setText(
     "player-subtitle",
-    "MLB ID " + player.id + " · " + (data.window.games_available || data.window.games_found) +
-      " juegos históricos · " + (data.window.seasons || "—") + " temporadas" +
-      (data.opponent_pitcher ? " · vs " + data.opponent_pitcher.name : "")
+    [sampleLabel, data.opponent_pitcher ? "Rival: " + data.opponent_pitcher.name : ""].filter(Boolean).join(" · ")
   );
 
   const confidence = byId("sample-confidence");
-  confidence.textContent = "MUESTRA " + data.sample.confidence.toUpperCase();
+  const sampleLabels = { alta: "amplia", media: "media", baja: "reducida" };
+  confidence.textContent = "Muestra histórica " + (sampleLabels[data.sample.confidence] || data.sample.confidence);
   confidence.className = "confidence-pill confidence-" + data.sample.confidence;
 
+  const scenario = game
+    ? "Proyección previa · " + (game.away?.abbreviation || game.away?.name || "Visitante") + " en " +
+      (game.home?.abbreviation || game.home?.name || "Local") + (game.official_date ? " · " + game.official_date : "")
+    : "Perfil sin partido seleccionado";
+  const conditions = ["Para el juego completo si el bateador participa."];
+  if (game) {
+    conditions.push(matchup?.lineup_confirmed && matchup.batting_order
+      ? "Puesto " + matchup.batting_order + " del orden al bate publicado."
+      : "Titularidad por confirmar.");
+    if (!data.opponent_pitcher) conditions.push("Abridor rival por confirmar.");
+  }
+  setText("projection-scenario", scenario);
+  setText("projection-conditions", conditions.join(" "));
   setText("projected-hits", number(projection.hits, 2));
   const predictiveInterval = projection.predictive_interval_hits;
-  const intervalLow = predictiveInterval
-    ? predictiveInterval.low
-    : projection.hits_low;
-  const intervalHigh = predictiveInterval
-    ? predictiveInterval.high
-    : projection.hits_high;
   setText(
     "projected-range",
-    number(intervalLow, predictiveInterval ? 0 : 2) + "–" +
-      number(intervalHigh, predictiveInterval ? 0 : 2) + " hits",
+    predictiveInterval
+      ? number(predictiveInterval.low, 0) + " a " + number(predictiveInterval.high, 0)
+      : "—",
   );
   setText(
     "projected-interval-note",
     predictiveInterval
-      ? Math.round((predictiveInterval.level || 0.9) * 100) + "% " +
-        (predictiveInterval.calibrated ? "calibrado" : "aprox. · no calibrado")
-      : "intervalo no disponible",
+      ? "Aprox. del " + Math.round((predictiveInterval.level || 0.9) * 100) + "%" +
+        (predictiveInterval.calibrated ? " · calibrado" : " · sin calibrar")
+      : "Rango no incluido en este reporte",
   );
+  setText("projected-pa", number(projection.plate_appearances, 1));
   setText(
-    "projected-pa",
-    number(projection.plate_appearances, 1) + " · rango " +
-      number(projection.plate_appearances_low, 0) + "–" +
-      number(projection.plate_appearances_high, 0),
+    "projected-pa-note",
+    Number.isFinite(projection.plate_appearances_low) && Number.isFinite(projection.plate_appearances_high)
+      ? "Rango estimado de " + number(projection.plate_appearances_low, 0) + " a " +
+        number(projection.plate_appearances_high, 0)
+      : "Promedio estimado",
   );
   setText("hit-game-chance", percent(projection.probability_one_or_more_hits));
   setText("hr-game-chance", percent(projection.probability_one_or_more_home_runs));
   setText(
     "data-window",
-    (data.window.historical_from || data.window.from) + " — " +
-      (data.window.historical_through || data.window.through)
+    [data.window.historical_from || data.window.from, data.window.historical_through || data.window.through]
+      .filter(Boolean).join(" al ") || "Fechas sin registrar"
   );
 
   setText("hit-rate", percent(rates.hits.rate));
@@ -1773,9 +1783,9 @@ function renderAnalysis(data) {
 
   renderDrivers(data.drivers || []);
   renderSeasons(data.season_trend || []);
-  renderHitDistribution(projection, explanation);
-  renderQuality(data.data_quality, explanation);
-  renderAnalysisGameContext(data.game_context, data.game_context?.matchup ?? data.matchup);
+  renderHitDistribution(projection);
+  renderQuality(data.data_quality);
+  renderAnalysisGameContext(data.game_context, matchup);
   updateFavoriteButton(player);
 
   validationButton.disabled = false;
@@ -2427,5 +2437,6 @@ byId("clear-game-context").addEventListener("click", clearGameContext);
 
 localDataReady = initializeLocalData();
 initMatchupTools();
-initLiveBoard();
+initLiveBoard(gameDateInput.value);
+initWorkspaceTabs();
 void loadSchedule();

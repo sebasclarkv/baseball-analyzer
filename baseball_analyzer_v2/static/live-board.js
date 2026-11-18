@@ -1,3 +1,6 @@
+import { loadGamesApi } from "./api.js";
+import { showWorkspace, workspaceIsActive } from "./workspace-tabs.js";
+
 const byId = (id) => document.getElementById(id);
 const setText = (id, value) => { byId(id).textContent = value; };
 const isNumber = (value) => typeof value === "number" && Number.isFinite(value);
@@ -5,15 +8,25 @@ const valueOrDash = (value) => isNumber(value) ? String(value) : "—";
 const percentFormat = new Intl.NumberFormat("es-MX", { style: "percent", maximumFractionDigits: 1 });
 const decimalFormat = new Intl.NumberFormat("es-MX", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const clockFormat = new Intl.DateTimeFormat("es-MX", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZoneName: "short" });
+const gameDateFormat = new Intl.DateTimeFormat("es-MX", { dateStyle: "long", timeZone: "UTC" });
 const updateInterval = 15000;
 const exampleGame = 777283;
 const exampleMoments = [
   { label: "Antes del jonrón", at: "2025-07-01T20:45:40Z" },
   { label: "Después del jonrón", at: "2025-07-01T20:47:10Z" },
 ];
+const playLabels = new Map([
+  ["home_run", "Jonrón"], ["single", "Sencillo"], ["double", "Doble"], ["triple", "Triple"],
+  ["strikeout", "Ponche"], ["walk", "Base por bolas"], ["intent_walk", "Base por bolas intencional"],
+  ["hit_by_pitch", "Golpeado por un lanzamiento"], ["field_out", "Out en jugada de campo"],
+  ["force_out", "Out forzado"], ["grounded_into_double_play", "Doble play"],
+  ["sac_fly", "Elevado de sacrificio"], ["sac_bunt", "Toque de sacrificio"],
+]);
 
 let session = null;
 let selectedGame = null;
+let pickerRequest = null;
+let pickerUpdatedAt = null;
 
 function textNode(tag, value, className) {
   const node = document.createElement(tag);
@@ -26,6 +39,24 @@ function formattedTime(value) {
   if (!value) return "";
   const instant = new Date(value);
   return Number.isNaN(instant.getTime()) ? "" : clockFormat.format(instant);
+}
+
+function formattedGameDate(value) {
+  if (!value) return "";
+  const day = new Date(`${value}T00:00:00Z`);
+  return Number.isNaN(day.getTime()) ? "" : gameDateFormat.format(day);
+}
+
+function timeDetail(label, value) {
+  const time = formattedTime(value);
+  if (!time) return null;
+  const row = document.createElement("div");
+  const description = document.createElement("dd");
+  const element = textNode("time", time);
+  element.dateTime = value;
+  description.appendChild(element);
+  row.append(textNode("dt", label), description);
+  return row;
 }
 
 export function gameFollowKind(game) {
@@ -86,20 +117,34 @@ function updatePlayerSelector(state) {
   }
   const player = selectedPlayer(snapshot);
   const hasTotals = isNumber(player?.hits) && isNumber(player?.plate_appearances);
-  setText("live-player-totals", hasTotals
-    ? `${player.name} · ${player.hits} ${player.hits === 1 ? "hit" : "hits"} en ${player.plate_appearances} PA en este juego.`
-    : player ? `Totales de ${player.name} aún sin confirmar.` : "Elige un bateador para consultar sus hits y apariciones.");
+  const totals = byId("live-player-totals");
+  if (hasTotals) {
+    const pa = textNode("abbr", "PA");
+    pa.title = "apariciones al plato";
+    totals.replaceChildren(
+      `${player.name} · ${player.hits} ${player.hits === 1 ? "hit" : "hits"} en ${player.plate_appearances} `,
+      pa,
+      " (apariciones al plato).",
+    );
+  } else {
+    totals.textContent = player ? `Registro de ${player.name} aún sin confirmar.` : "Selecciona un bateador para ver su registro.";
+  }
 }
 
 function renderTeam(side, snapshot) {
   const team = snapshot.game[side];
   const row = byId(`live-${side}-team`);
-  const teamLabel = textNode("div", "", "live-team-label");
+  const baseLabel = side === "away" ? "Visitante" : "Local";
+  const batting = snapshot.batting_side === side && snapshot.inning_state === "playing";
   const abbreviation = textNode("span", team?.abbreviation || (side === "away" ? "VIS" : "LOC"), "live-team-code");
   if (team?.name) abbreviation.setAttribute("aria-hidden", "true");
-  teamLabel.append(abbreviation, textNode("strong", team?.name || (side === "away" ? "Visitante" : "Local"), "live-team-name"));
-  row.dataset.batting = String(snapshot.batting_side === side && snapshot.inning_state === "playing");
-  row.replaceChildren(teamLabel, textNode("strong", valueOrDash(team?.score), "live-runs"));
+  row.dataset.batting = String(batting);
+  row.replaceChildren(
+    textNode("span", batting ? `${baseLabel} · al bate` : baseLabel, "live-team-side"),
+    abbreviation,
+    textNode("span", team?.name || baseLabel, "live-team-name"),
+    textNode("strong", valueOrDash(team?.score), "live-runs"),
+  );
 }
 
 function renderSituation(snapshot) {
@@ -116,7 +161,7 @@ function renderSituation(snapshot) {
     byId(`live-base-${index + 1}`).classList.toggle("occupied", Boolean(runner));
     if (runner) runners.push(`${["1ª", "2ª", "3ª"][index]} ${runner.name || "ocupada"}`);
   });
-  setText("live-bases-label", runners.join(" · ") || (snapshot.inning_state === "playing" && snapshot.bases ? "Bases vacías" : "Corredores —"));
+  setText("live-bases-label", runners.join(" · ") || (snapshot.inning_state === "playing" && snapshot.bases ? "Bases vacías" : "Bases por confirmar"));
   setText("live-batter", snapshot.batter?.name || (between ? "Entre entradas" : "Turno por confirmar"));
   const hand = { L: "zurdo", R: "derecho" }[snapshot.pitcher?.hand];
   setText("live-pitcher", snapshot.pitcher?.name ? `${snapshot.pitcher.name}${hand ? ` · ${hand}` : ""}` : "Pitcher por confirmar");
@@ -137,19 +182,23 @@ function renderWin(snapshot) {
   grid.replaceChildren(...["away", "home"].map((side) => {
     const item = textNode("div", "", "live-win-side");
     const change = win[`${side}_change`];
-    item.append(textNode("span", snapshot.game[side]?.abbreviation || snapshot.game[side]?.name || "Equipo"),
-      textNode("strong", percentFormat.format(win[side])));
+    const team = snapshot.game[side];
+    item.append(textNode("span", team?.name || team?.abbreviation || (side === "away" ? "Visitante" : "Local"), "live-win-name"),
+      textNode("strong", percentFormat.format(win[side]), "live-win-value"));
     if (isNumber(change)) {
       const points = change * 100;
-      item.append(textNode("small", `${points > 0 ? "+" : ""}${decimalFormat.format(points)} pp`));
+      const written = Math.abs(points) < .05 ? 0 : points;
+      const label = textNode("span", `${written > 0 ? "+" : ""}${decimalFormat.format(written)} pp`, "live-win-change");
+      label.title = "Cambio desde la estimación anterior, en puntos porcentuales";
+      item.append(label);
     }
     return item;
   }));
   meter.children[0].style.width = `${win.away * 100}%`;
   meter.children[1].style.width = `${win.home * 100}%`;
   const playTime = formattedTime(win.play_at);
-  const sourceStatus = win.source?.stale ? " · dato guardado" : "";
-  setText("live-win-note", `MLB tras el último turno con probabilidad publicada${playTime ? ` · ${playTime}` : ""}${sourceStatus}. El cambio se muestra en puntos porcentuales.`);
+  const sourceStatus = win.source?.stale ? " · copia guardada" : "";
+  setText("live-win-note", `Estimación de MLB tras el último turno con dato publicado${playTime ? ` · ${playTime}` : ""}${sourceStatus}. El cambio frente a la estimación anterior se expresa en puntos porcentuales (pp).`);
 }
 
 function addEstimateDetails(root, estimate) {
@@ -171,7 +220,10 @@ function renderEstimate(payload) {
   result.dataset.current = "true";
   result.replaceChildren();
   if (!isNumber(estimate.next_pa?.probability)) {
-    result.append(textNode("p", "No hay muestra suficiente para estimar un hit de este bateador en esta situación."));
+    const description = estimate.status === "insufficient"
+      ? "Faltan apariciones comparables para estimar un hit en esta situación."
+      : "La estimación de hits no está disponible para este turno.";
+    result.append(textNode("p", description));
   } else {
     const next = estimate.next_pa;
     const matchup = payload.pitcher?.name || estimate.pitcher?.name;
@@ -179,7 +231,8 @@ function renderEstimate(payload) {
     const label = next.scope === "current" ? "en este turno" : "en su próxima aparición";
     const summary = textNode("p", "", "live-estimate-summary");
     summary.append(textNode("strong", percentFormat.format(next.probability)), textNode("span", ` de hit ${label}`));
-    result.append(textNode("p", `${hitter}${matchup ? ` vs. ${matchup}` : ""}`), summary);
+    result.append(textNode("p", "Estimación de Diamond IQ · Statcast", "live-estimate-label"),
+      textNode("p", `${hitter}${matchup ? ` vs. ${matchup}` : ""}`), summary);
     if (payload.pitcher_reference === "last_known" && matchup) result.append(textNode("p", "Se usa el último pitcher publicado para el rival."));
     if (next.count_applied && next.count) {
       const reference = isNumber(estimate.rate) ? ` Referencia al inicio del turno ${percentFormat.format(estimate.rate)}.` : "";
@@ -195,7 +248,7 @@ function renderEstimate(payload) {
       option.append(textNode("strong", isNumber(entry.probability_one_or_more_hits) ? percentFormat.format(entry.probability_one_or_more_hits) : "—"));
       list.append(option);
     }
-    result.append(textNode("p", "Probabilidad de al menos un hit adicional si disputa estas apariciones."), list);
+    result.append(textNode("p", "Al menos un hit adicional si tiene estas apariciones al plato."), list);
   }
   addEstimateDetails(result, estimate);
   result.hidden = false;
@@ -238,7 +291,10 @@ function updateStatus(state) {
   else if (phase === "unavailable") messages.push("MLB no ofrece seguimiento activo en este estado.");
   if (state.paused && ["live", "paused"].includes(phase)) messages.push("Actualizaciones pausadas.");
   if (snapshot && !state.at && !state.paused && ["live", "paused"].includes(phase) && !stale) messages.push("Consulta automática cada 15 segundos.");
-  if (state.at && snapshot && !stale) messages.push("Juego finalizado el 1 de julio de 2025. Explora dos momentos de la cuarta entrada.");
+  if (state.at && snapshot && !stale) {
+    const date = formattedGameDate(snapshot.game.official_date);
+    messages.push(date ? `Juego histórico del ${date}. Elige un momento para revisar la jugada.` : "Elige un momento del juego histórico.");
+  }
   const status = byId("live-status");
   const message = messages.join(" ");
   if (status.textContent !== message) status.textContent = message;
@@ -254,12 +310,19 @@ function renderSnapshot(state) {
   renderTeam("home", snapshot);
   renderSituation(snapshot);
   const active = game.phase === "live" || game.phase === "paused";
+  const panel = byId("live-panel");
+  panel.dataset.showTurn = String(active);
+  panel.dataset.showEstimate = String(game.phase === "live");
   ["live-situation", "live-matchup", "live-win-panel"].forEach((id) => { byId(id).hidden = !active; });
   byId("live-hitter-panel").hidden = game.phase !== "live";
-  setText("live-last-play", snapshot.last_play?.description || "MLB aún no publica una jugada completa.");
-  const eventTime = formattedTime(snapshot.snapshot_at);
-  const retrievedTime = state.at ? "" : formattedTime(snapshot.source?.fetched_at);
-  setText("live-times", [snapshot.source?.name || "MLB", eventTime ? `Datos del proveedor · ${eventTime}` : "", retrievedTime ? `Consultado · ${retrievedTime}` : ""].filter(Boolean).join(" · "));
+  const play = snapshot.last_play;
+  const eventLabel = playLabels.get(play?.event_type);
+  setText("live-last-play", eventLabel || play?.description || "MLB aún no publica una jugada completa.");
+  byId("live-play-detail").hidden = !eventLabel || !play?.description;
+  setText("live-play-description", play?.description || "");
+  const timestamps = [timeDetail("Hora del dato de MLB", snapshot.snapshot_at)];
+  if (!state.at) timestamps.push(timeDetail("Hora de consulta", snapshot.source?.fetched_at));
+  byId("live-times").replaceChildren(...timestamps.filter(Boolean));
   if (active) renderWin(snapshot);
   updatePlayerSelector(state);
   updateStatus(state);
@@ -273,7 +336,7 @@ function clearRefresh(state) {
 function scheduleRefresh(state) {
   clearRefresh(state);
   const phase = state.snapshot?.game?.phase;
-  if (session !== state || state.at || state.paused || document.hidden || navigator.onLine === false ||
+  if (session !== state || !workspaceIsActive("live") || state.at || state.paused || document.hidden || navigator.onLine === false ||
       (phase && !["live", "paused"].includes(phase))) return;
   state.timer = setTimeout(() => void fetchSnapshot(state), updateInterval);
 }
@@ -296,7 +359,7 @@ function liveUrl(state, hitter = false) {
 }
 
 async function fetchSnapshot(state) {
-  if (session !== state || state.feedRequest) return;
+  if (session !== state || !workspaceIsActive("live") || state.feedRequest) return;
   clearRefresh(state);
   if (navigator.onLine === false) {
     state.error = "Sin conexión.";
@@ -381,7 +444,12 @@ function closeSession({ restoreFocus = false } = {}) {
     cancelHitter(old);
   }
   byId("live-panel").hidden = true;
-  if (restoreFocus && old?.trigger && !old.trigger.hidden) old.trigger.focus();
+  if (restoreFocus) {
+    byId("live-discovery").open = true;
+    const trigger = old?.trigger;
+    if (trigger?.isConnected && trigger.closest("#workspace-live") && !trigger.hidden) trigger.focus();
+    else byId("live-game-date").focus();
+  }
 }
 
 function openSession(gameId, { at = null, trigger = null, focus = true } = {}) {
@@ -396,7 +464,12 @@ function openSession(gameId, { at = null, trigger = null, focus = true } = {}) {
   setText("live-title", at ? "Yankees contra Blue Jays" : "Seguimiento del juego");
   byId("live-replay-switch").hidden = !at;
   for (const choice of byId("live-replay-switch").children) choice.setAttribute("aria-pressed", String(choice.dataset.at === at));
+  byId("live-discovery").open = false;
+  for (const choice of byId("live-game-list").children) {
+    choice.setAttribute("aria-pressed", String(!at && choice.dataset.gameId === String(gameId)));
+  }
   updateStatus(session);
+  showWorkspace("live");
   if (focus) {
     byId("live-title").focus({ preventScroll: true });
     section.scrollIntoView({ block: "start" });
@@ -404,7 +477,72 @@ function openSession(gameId, { at = null, trigger = null, focus = true } = {}) {
   void fetchSnapshot(session);
 }
 
-export function initLiveBoard() {
+export function followLiveGame(game, trigger) {
+  openSession(game.id, { trigger });
+}
+
+function buildPickerCard(game, kind) {
+  const card = textNode("button", "", "live-game-choice");
+  const away = game.away?.name || "Visitante";
+  const home = game.home?.name || "Local";
+  const score = isNumber(game.away?.score) && isNumber(game.home?.score) ? ` · ${game.away.score}–${game.home.score}` : "";
+  card.type = "button";
+  card.dataset.kind = kind;
+  card.dataset.gameId = game.id;
+  card.setAttribute("aria-pressed", String(!session?.at && session?.gameId === game.id));
+  card.append(textNode("strong", `${away} en ${home}`), textNode("span", (kind === "live" ? "En curso" : "Finalizado") + score));
+  card.addEventListener("click", () => followLiveGame(game, card));
+  return card;
+}
+
+async function loadLivePicker() {
+  const day = byId("live-game-date").value;
+  pickerRequest?.abort();
+  pickerRequest = null;
+  const button = byId("refresh-live-games");
+  const status = byId("live-picker-status");
+  const list = byId("live-game-list");
+  if (!day) {
+    button.disabled = false;
+    list.replaceChildren();
+    setText("live-discovery-date", "");
+    status.textContent = "Elige una fecha para consultar la jornada.";
+    return;
+  }
+
+  const controller = new AbortController();
+  pickerRequest = controller;
+  button.disabled = true;
+  list.replaceChildren();
+  status.textContent = "Consultando partidos de MLB…";
+  const label = new Date(`${day}T12:00:00`).toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" });
+  setText("live-discovery-date", label);
+  try {
+    const data = await loadGamesApi(day, controller.signal);
+    if (pickerRequest !== controller || controller.signal.aborted) return;
+    const games = data.games.map((game) => ({ game, kind: gameFollowKind(game) })).filter(({ kind }) => kind);
+    const inProgress = games.filter(({ kind }) => kind === "live");
+    const finals = games.filter(({ kind }) => kind === "final");
+    list.replaceChildren(...[...inProgress, ...finals].map(({ game, kind }) => buildPickerCard(game, kind)));
+    const statuses = [];
+    if (inProgress.length) statuses.push(`${inProgress.length} en curso`);
+    if (finals.length) statuses.push(`${finals.length} ${finals.length === 1 ? "finalizado" : "finalizados"}`);
+    const listing = statuses.length ? statuses.join(" · ") : "No hay partidos en curso ni finalizados para esta fecha.";
+    status.textContent = listing + (data.source?.stale ? " · Jornada guardada." : "");
+    pickerUpdatedAt = Date.now();
+  } catch (error) {
+    if (pickerRequest !== controller || controller.signal.aborted) return;
+    status.textContent = "No se pudo actualizar la jornada. Pulsa Actualizar jornada para reintentar.";
+    pickerUpdatedAt = null;
+  } finally {
+    if (pickerRequest === controller) {
+      pickerRequest = null;
+      button.disabled = false;
+    }
+  }
+}
+
+export function initLiveBoard(today) {
   const exampleTrigger = byId("try-live-replay");
   const selectedTrigger = byId("open-live-panel");
   if (!exampleTrigger || !selectedTrigger) return;
@@ -416,11 +554,10 @@ export function initLiveBoard() {
     byId("live-replay-switch").appendChild(button);
   }
   exampleTrigger.addEventListener("click", () => {
-    if (selectedGame) byId("clear-game-context").click();
     openSession(exampleGame, { at: exampleMoments[0].at, trigger: exampleTrigger });
   });
   selectedTrigger.addEventListener("click", () => {
-    if (selectedGame) openSession(selectedGame.id, { trigger: selectedTrigger });
+    if (selectedGame) followLiveGame(selectedGame, selectedTrigger);
   });
   byId("close-live-panel").addEventListener("click", () => closeSession({ restoreFocus: true }));
   byId("live-refresh").addEventListener("click", () => { if (session) void fetchSnapshot(session); });
@@ -444,18 +581,30 @@ export function initLiveBoard() {
   window.addEventListener("diamondiq:game-cleared", () => {
     selectedGame = null;
     setGameButton(null);
-    closeSession();
   });
   window.addEventListener("diamondiq:game-selected", (event) => {
     selectedGame = event.detail.game;
     setGameButton(selectedGame);
-    if (gameFollowKind(selectedGame) === "live") {
-      openSession(selectedGame.id, { trigger: selectedTrigger });
-    }
   });
   window.addEventListener("diamondiq:game-context", (event) => {
     selectedGame = event.detail.context.game;
     setGameButton(selectedGame);
+  });
+  byId("live-game-date").value = today;
+  byId("live-game-date").addEventListener("change", () => {
+    closeSession();
+    void loadLivePicker();
+  });
+  byId("refresh-live-games").addEventListener("click", () => void loadLivePicker());
+  window.addEventListener("diamondiq:workspace", (event) => {
+    if (event.detail.key !== "live") {
+      if (session) clearRefresh(session);
+      return;
+    }
+    if (!pickerRequest && (pickerUpdatedAt === null || Date.now() - pickerUpdatedAt >= 90000)) void loadLivePicker();
+    if (session && !session.at && !session.paused && (!session.snapshot || ["live", "paused"].includes(session.snapshot.game.phase))) {
+      void fetchSnapshot(session);
+    }
   });
   window.addEventListener("offline", () => {
     if (!session || session.at) return;
@@ -463,9 +612,9 @@ export function initLiveBoard() {
     session.error = "Sin conexión.";
     updateStatus(session);
   });
-  window.addEventListener("online", () => { if (session && !session.at && !session.paused && session.snapshot?.game?.phase !== "final") void fetchSnapshot(session); });
+  window.addEventListener("online", () => { if (workspaceIsActive("live") && session && !session.at && !session.paused && session.snapshot?.game?.phase !== "final") void fetchSnapshot(session); });
   document.addEventListener("visibilitychange", () => {
-    if (!session || session.at) return;
+    if (!workspaceIsActive("live") || !session || session.at) return;
     if (document.hidden) clearRefresh(session);
     else if (!session.paused && (!session.snapshot || ["live", "paused"].includes(session.snapshot.game.phase))) void fetchSnapshot(session);
   });

@@ -1,4 +1,4 @@
-const CACHE_NAME = "diamond-iq-shell-v6";
+const CACHE_NAME = "diamond-iq-shell-v7";
 const SHELL = [
   "/",
   "/static/styles.css",
@@ -10,6 +10,8 @@ const SHELL = [
   "/static/matchup-tools.js",
   "/static/live-board.css",
   "/static/live-board.js",
+  "/static/workspace.css",
+  "/static/workspace-tabs.js",
   "/static/manifest.webmanifest",
   "/static/icon.svg",
   "/static/apple-touch-icon.png",

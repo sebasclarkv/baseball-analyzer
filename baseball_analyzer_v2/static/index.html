@@ -8,18 +8,19 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Diamond IQ">
-    <title>Baseball Analyzer 3.0 · Diamond IQ</title>
+    <title>Baseball Analyzer 3.1 · Diamond IQ</title>
     <link rel="manifest" href="/static/manifest.webmanifest">
     <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
     <link rel="stylesheet" href="/static/styles.css">
     <link rel="stylesheet" href="/static/matchup-tools.css">
     <link rel="stylesheet" href="/static/live-board.css">
+    <link rel="stylesheet" href="/static/workspace.css">
     <script type="module" src="/static/app.js"></script>
     <script type="module" src="/static/prospective.js"></script>
   </head>
   <body>
-    <a class="skip-link" href="#main">Saltar al análisis</a>
+    <a class="skip-link" href="#main">Saltar al contenido</a>
     <header class="topbar">
       <a class="brand" href="/" aria-label="Baseball Analyzer, inicio">
         <span class="brand-mark" aria-hidden="true"><span></span></span>
@@ -31,31 +32,32 @@
       <div class="topbar-meta">
         <span class="live-dot"></span>
         <span>MLB · STATCAST</span>
-        <span class="version-pill">V3.0</span>
+        <span class="version-pill">V3.1</span>
       </div>
       <button id="install-app" class="install-button" type="button">Instalar app</button>
     </header>
 
     <main id="main" class="page-shell">
-      <section class="hero">
-        <div class="hero-copy">
-          <p class="eyebrow"><span class="eyebrow-line"></span> INTELIGENCIA DE BÉISBOL</p>
-          <h1>Lee el juego.<br><span>Proyecta el siguiente.</span></h1>
-          <p class="hero-description">Proyecta la previa con Statcast o sigue el marcador, el turno al bate y las probabilidades cuando empieza el juego.</p>
-        </div>
-        <div class="hero-stamp" aria-hidden="true">
-          <span>01</span>
-          <i></i>
-          <span>ANALYTICS</span>
-        </div>
-      </section>
+      <header class="workspace-heading">
+        <h1>Analiza la jornada MLB</h1>
+        <p>Consulta proyecciones de hits antes del partido o sigue el juego y las probabilidades en vivo.</p>
+      </header>
 
+      <div class="workspace-tabs" role="tablist" aria-label="Modo de análisis">
+        <button id="tab-prep" type="button" role="tab" aria-selected="true" aria-controls="workspace-prep" aria-label="Previa">
+          <strong>Previa</strong><span>Proyecta hits y compara bateadores</span>
+        </button>
+        <button id="tab-live" type="button" role="tab" aria-selected="false" aria-controls="workspace-live" aria-label="En vivo" tabindex="-1">
+          <strong>En vivo</strong><span>Sigue el marcador, la cuenta y el turno</span>
+        </button>
+      </div>
+
+      <div id="workspace-prep" class="workspace-panel" role="tabpanel" aria-labelledby="tab-prep" tabindex="0">
       <section class="slate-panel" aria-labelledby="slate-title">
         <div class="slate-heading">
           <div>
-            <p class="section-kicker">JORNADA MLB</p>
-            <h2 id="slate-title">Del primer lanzamiento al matchup</h2>
-            <p class="slate-intro">Elige un juego para preparar el duelo o seguir el turno al bate en vivo.</p>
+            <h2 id="slate-title">Elige un partido</h2>
+            <p class="slate-intro">Selecciona un juego para ver su alineación. <a href="#player-query">Busca un bateador sin partido</a> para ver su perfil.</p>
           </div>
           <div class="slate-controls">
             <button id="previous-game-date" class="date-step" type="button" aria-label="Día anterior">‹</button>
@@ -64,76 +66,11 @@
               <input id="game-date" type="date" aria-label="Fecha de la jornada">
             </label>
             <button id="next-game-date" class="date-step" type="button" aria-label="Día siguiente">›</button>
-            <button id="load-games" class="quiet-button" type="button">Ver jornada</button>
+            <button id="load-games" class="quiet-button" type="button">Actualizar jornada</button>
           </div>
         </div>
         <p id="schedule-status" class="schedule-status" role="status" aria-live="polite">Cargando juegos de la fecha…</p>
         <div id="game-list" class="game-list" role="group" aria-label="Juegos MLB de la fecha"></div>
-        <button id="try-live-replay" class="quiet-button live-example" type="button">Ver una jugada de ejemplo</button>
-      </section>
-
-      <section id="live-panel" class="live-board" aria-labelledby="live-title" hidden>
-        <div class="live-board-head">
-          <div>
-            <p id="live-mode" class="live-mode">En vivo</p>
-            <h2 id="live-title" tabindex="-1">Seguimiento del juego</h2>
-          </div>
-          <div class="live-board-actions">
-            <button id="live-refresh" class="quiet-button" type="button">Actualizar ahora</button>
-            <button id="live-pause" class="quiet-button" type="button">Pausar actualizaciones</button>
-            <button id="close-live-panel" class="quiet-button" type="button">Cerrar seguimiento</button>
-          </div>
-        </div>
-        <p id="live-status" class="live-board-status" role="status"></p>
-        <div id="live-replay-switch" class="live-replay-switch" role="group" aria-label="Momentos de la repetición" hidden></div>
-        <div id="live-content" hidden>
-          <div class="live-score-grid">
-            <div class="live-score" role="group" aria-label="Marcador">
-              <div class="live-score-head"><span>Equipo</span><abbr title="Carreras">R</abbr></div>
-              <div id="live-away-team" class="live-score-team"></div>
-              <div id="live-home-team" class="live-score-team"></div>
-            </div>
-            <div id="live-situation" class="live-situation">
-              <p id="live-inning" class="live-inning"></p>
-              <div class="live-field" aria-hidden="true">
-                <div class="live-infield"></div><span id="live-base-1" class="live-base base-first"></span>
-                <span id="live-base-2" class="live-base base-second"></span>
-                <span id="live-base-3" class="live-base base-third"></span><span class="live-plate"></span>
-              </div>
-              <p id="live-bases-label" class="live-bases-label"></p>
-              <dl class="live-counts">
-                <div><dt>Bolas</dt><dd id="live-balls">—</dd></div>
-                <div><dt>Strikes</dt><dd id="live-strikes">—</dd></div>
-                <div><dt>Outs</dt><dd id="live-outs">—</dd></div>
-              </dl>
-            </div>
-          </div>
-          <dl id="live-matchup" class="live-matchup">
-            <div><dt>Al bate</dt><dd id="live-batter">—</dd></div>
-            <div><dt>En el montículo</dt><dd id="live-pitcher">—</dd></div>
-          </dl>
-          <div class="live-play">
-            <h3>Última jugada</h3>
-            <p id="live-last-play"></p>
-          </div>
-          <p id="live-times" class="live-times"></p>
-          <section id="live-win-panel" class="live-win-panel" aria-labelledby="live-win-title">
-            <h3 id="live-win-title">Probabilidad de ganar según MLB</h3>
-            <div id="live-win-grid" class="live-win-grid" hidden></div>
-            <div id="live-win-meter" class="live-win-meter" aria-hidden="true" hidden><span></span><span></span></div>
-            <p id="live-win-note" class="live-times"></p>
-          </section>
-          <section id="live-hitter-panel" class="live-hitter-panel" aria-labelledby="live-hitter-title">
-            <h3 id="live-hitter-title">Hits del bateador</h3>
-            <div class="live-hitter-controls">
-              <label for="live-player-select">Bateador<select id="live-player-select"></select></label>
-              <button id="live-estimate" class="quiet-button" type="button">Estimar hits</button>
-            </div>
-            <p id="live-player-totals" class="live-player-totals"></p>
-            <p id="live-estimate-status" class="live-board-status" role="status"></p>
-            <div id="live-estimate-result" class="live-estimate-result" hidden></div>
-          </section>
-        </div>
       </section>
 
       <section id="game-context-panel" class="game-context-panel" aria-labelledby="game-context-title" hidden>
@@ -207,23 +144,23 @@
 
       <section class="search-panel" aria-labelledby="search-title">
         <div class="search-heading">
-          <div>
-            <p class="section-kicker">RUTA RÁPIDA</p>
-            <h2 id="search-title">Busca un jugador</h2>
-          </div>
-          <span class="search-hint">Úsalo sin elegir un juego</span>
+          <h2 id="search-title">Elige a quién proyectar</h2>
         </div>
+        <ul class="search-guidance" role="list">
+          <li><strong>Con partido.</strong> Elige un juego en la jornada y selecciona un bateador de la alineación o de la plantilla.</li>
+          <li id="player-search-guide"><strong>Sin partido.</strong> Busca <b>Shohei Ohtani</b> u <b>Ohtani Shohei</b> y selecciona una coincidencia.</li>
+        </ul>
         <form id="search-form" autocomplete="off">
           <div class="form-field player-field">
             <label for="player-query">Bateador MLB</label>
             <div class="input-wrap">
               <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 5 5"></path></svg>
-              <input id="player-query" name="player" type="search" minlength="2" placeholder="Ej. Aaron Judge" role="combobox" aria-label="Buscar jugador" aria-autocomplete="list" aria-expanded="false" aria-controls="player-suggestions" required>
+              <input id="player-query" name="player" type="search" minlength="2" placeholder="Ej. Shohei Ohtani" role="combobox" aria-label="Buscar jugador" aria-autocomplete="list" aria-expanded="false" aria-controls="player-suggestions" aria-describedby="player-search-guide" required>
             </div>
             <div id="player-suggestions" class="suggestions" role="listbox" aria-label="Jugadores encontrados" hidden></div>
           </div>
           <div class="form-field pitcher-field">
-            <label for="pitcher-query">Pitcher rival · opcional</label>
+            <label for="pitcher-query">Abridor rival (opcional)</label>
             <div class="input-wrap">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V9l8-5 8 5v11M8 20v-6h8v6M3 20h18"></path><circle cx="12" cy="10" r="1.4"></circle></svg>
               <input id="pitcher-query" name="pitcher" type="search" minlength="2" placeholder="Busca el abridor rival" role="combobox" aria-label="Buscar pitcher rival" aria-autocomplete="list" aria-expanded="false" aria-controls="pitcher-suggestions">
@@ -231,7 +168,7 @@
             <div id="pitcher-suggestions" class="suggestions" role="listbox" aria-label="Pitchers encontrados" hidden></div>
           </div>
           <div class="form-field">
-            <label for="games-select">Juegos para estimar forma</label>
+            <label for="games-select">Juegos recientes</label>
             <select id="games-select" name="games">
               <option value="10">10 juegos</option>
               <option value="20">20 juegos</option>
@@ -242,7 +179,7 @@
             </select>
           </div>
           <div class="form-field">
-            <label for="window-select">Historial analizado</label>
+            <label for="window-select">Historial máximo</label>
             <select id="window-select" name="lookback">
               <option value="90">90 días</option>
               <option value="180">180 días</option>
@@ -254,7 +191,7 @@
             </select>
           </div>
           <button id="analyze-button" class="primary-button" type="submit" disabled>
-            <span>Analizar bateador</span>
+            <span>Calcular proyección</span>
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
           </button>
         </form>
@@ -297,18 +234,16 @@
         <div id="favorite-list" class="favorite-list" aria-label="Bateadores favoritos"></div>
       </section>
 
-      <section id="empty-state" class="empty-state">
+      <section id="empty-state" class="empty-state" aria-labelledby="empty-state-title">
         <div class="empty-diamond" aria-hidden="true"><span></span></div>
-        <p class="section-kicker">TU SIGUIENTE VENTAJA</p>
-        <h2>Los números cuentan una historia.</h2>
-        <p>Compara hasta tres temporadas con la forma actual, la calidad de contacto y, si conoces al abridor rival, las señales del matchup.</p>
-        <div class="empty-foot"><span>01</span> BÚSQUEDA <i></i><span>02</span> TENDENCIA <i></i><span>03</span> PROYECCIÓN</div>
+        <h2 id="empty-state-title">Tu proyección aparecerá aquí</h2>
+        <p>Verás la probabilidad de 0, 1 o 2+ hits para el juego completo. Consulta el marcador y los hits registrados por MLB en <a href="#en-vivo">En vivo</a>.</p>
       </section>
 
-      <section id="dashboard" class="dashboard" hidden aria-live="polite">
+      <section id="dashboard" class="dashboard" aria-labelledby="player-name" hidden aria-live="polite">
         <div class="player-heading">
           <div>
-            <p class="section-kicker">PERFIL DE BATEO <span id="sample-confidence" class="confidence-pill"></span></p>
+            <p id="sample-confidence" class="confidence-pill" title="Tamaño de la muestra histórica ponderado por antigüedad"></p>
             <h2 id="player-name">—</h2>
             <p id="player-subtitle" class="player-subtitle">Statcast · —</p>
           </div>
@@ -325,26 +260,23 @@
 
         <section class="projection-panel" aria-labelledby="projection-title">
           <div class="projection-main">
-            <p class="section-kicker">PROYECCIÓN · PRÓXIMO JUEGO</p>
-            <h3 id="projection-title"><span id="projected-hits">—</span><small> hits esperados</small></h3>
-            <p><span id="projected-range">—</span> intervalo predictivo · <span id="projected-interval-note">—</span></p>
-            <p class="projection-pa-line"><span id="projected-pa">—</span> apariciones</p>
+            <p id="projection-scenario" class="projection-scenario">Proyección previa</p>
+            <h3 id="projection-title">Probabilidad de 1 o más hits</h3>
+            <p id="hit-game-chance" class="projection-probability">—</p>
+            <p id="projection-conditions" class="projection-conditions">—</p>
           </div>
-          <div class="projection-side">
-            <span class="projection-orbit" aria-hidden="true"><i></i><b></b></span>
-            <div><strong id="hit-game-chance">—</strong><small>prob. de 1+ hit</small></div>
-            <div><strong id="hr-game-chance">—</strong><small>prob. de HR</small></div>
-          </div>
-          <div class="projection-foot">
-            <span class="projection-marker"></span>
-            <span>HISTORIAL · FORMA · CONTEXTO DEL MATCHUP</span>
-            <span id="data-window">—</span>
-          </div>
+          <dl class="projection-details">
+            <div><dt>Hits esperados</dt><dd><span id="projected-hits">—</span><small>Promedio del modelo</small></dd></div>
+            <div><dt>Rango de hits</dt><dd><span id="projected-range">—</span><small id="projected-interval-note"></small></dd></div>
+            <div><dt>Apariciones al plato</dt><dd><span id="projected-pa">—</span><small id="projected-pa-note"></small></dd></div>
+            <div><dt>Probabilidad de 1 o más jonrones</dt><dd id="hr-game-chance">—</dd></div>
+          </dl>
+          <p class="projection-foot">Historial usado: <span id="data-window">—</span></p>
         </section>
 
         <section id="hit-distribution" class="hit-distribution" aria-labelledby="distribution-title" hidden>
           <div class="distribution-heading">
-            <div><p class="section-kicker">RESULTADOS POSIBLES</p><h3 id="distribution-title">¿Cuántos hits?</h3></div>
+            <h3 id="distribution-title">Probabilidades por número de hits</h3>
             <span id="distribution-note" class="distribution-note"></span>
           </div>
           <div id="distribution-values" class="distribution-grid">
@@ -353,11 +285,11 @@
               <span class="distribution-track"><i id="probability-zero-bar"></i></span>
             </article>
             <article class="distribution-outcome distribution-one">
-              <div><span>1 hit</span><strong id="probability-one-hit">—</strong></div>
+              <div><span>Exactamente 1 hit</span><strong id="probability-one-hit">—</strong></div>
               <span class="distribution-track"><i id="probability-one-bar"></i></span>
             </article>
             <article class="distribution-outcome distribution-multiple">
-              <div><span>2 o más</span><strong id="probability-two-plus-hits">—</strong></div>
+              <div><span>2 o más hits</span><strong id="probability-two-plus-hits">—</strong></div>
               <span class="distribution-track"><i id="probability-two-plus-bar"></i></span>
             </article>
           </div>
@@ -366,7 +298,7 @@
 
         <section id="analysis-game-context" class="analysis-game-context" aria-labelledby="analysis-context-title" hidden>
           <div class="analysis-context-heading">
-            <div><p class="section-kicker">PREVIA DEL JUEGO</p><h3 id="analysis-context-title">Contexto</h3></div>
+            <div><p class="section-kicker">DATOS ANTES DEL JUEGO</p><h3 id="analysis-context-title">Contexto</h3></div>
             <span id="analysis-lineup-status" class="lineup-status"></span>
           </div>
           <div id="analysis-context-body" class="analysis-context-body"></div>
@@ -375,8 +307,8 @@
 
         <section id="data-quality" class="data-quality" aria-labelledby="quality-title" hidden>
           <div class="quality-heading">
-            <span id="data-quality-indicator" class="quality-indicator"></span>
-            <div><p class="section-kicker">ESTADO DE LA PROYECCIÓN</p><h3 id="quality-title">Calidad de datos</h3></div>
+            <span id="data-quality-indicator" class="quality-indicator" aria-hidden="true"></span>
+            <div><h3 id="quality-title">Estado de los datos</h3></div>
             <strong id="data-quality-status" class="quality-label"></strong>
           </div>
           <p id="quality-summary" class="quality-summary"></p>
@@ -387,25 +319,25 @@
 
         <div class="metric-grid">
           <article class="metric-card metric-primary">
-            <div class="metric-top"><span>HIT / PA · xBA + MATCHUP</span><span class="metric-icon">H</span></div>
+            <div class="metric-top">Hits por aparición al plato</div>
             <strong id="hit-rate">—</strong>
             <p id="hit-count">— hits observados · — PA</p>
             <div class="metric-track"><span id="hit-track"></span></div>
           </article>
           <article class="metric-card">
-            <div class="metric-top"><span>HOME RUN / APARICIÓN</span><span class="metric-icon icon-violet">HR</span></div>
+            <div class="metric-top">Jonrones por aparición</div>
             <strong id="hr-rate">—</strong>
             <p id="hr-count">— HR en la muestra</p>
             <div class="metric-track violet-track"><span id="hr-track"></span></div>
           </article>
           <article class="metric-card">
-            <div class="metric-top"><span>EV. DE SALIDA</span><span class="metric-icon icon-blue">EV</span></div>
+            <div class="metric-top">Velocidad de salida</div>
             <strong id="exit-velocity">—</strong>
             <p>promedio · mph</p>
             <div class="metric-track blue-track"><span id="ev-track"></span></div>
           </article>
           <article class="metric-card">
-            <div class="metric-top"><span>CONTACTO DURO</span><span class="metric-icon icon-gold">95+</span></div>
+            <div class="metric-top">Contacto de 95 mph o más</div>
             <strong id="hard-hit-rate">—</strong>
             <p id="batted-ball-count">— bolas bateadas</p>
             <div class="metric-track gold-track"><span id="hard-hit-track"></span></div>
@@ -569,6 +501,124 @@
         </details>
         <p class="source-note">Fuente: Baseball Savant · Estimaciones estadísticas, no resultados garantizados.</p>
       </section>
+      </div>
+
+      <div id="workspace-live" class="workspace-panel" role="tabpanel" aria-labelledby="tab-live" tabindex="0" hidden>
+        <details id="live-discovery" class="live-discovery" open>
+          <summary><span>Elegir partido</span><span id="live-discovery-date" class="live-discovery-date"></span></summary>
+          <div class="live-discovery-grid">
+            <section class="live-picker" aria-labelledby="live-picker-title">
+              <h2 id="live-picker-title">Jornada en vivo</h2>
+              <div class="live-picker-controls">
+                <label for="live-game-date">Fecha <input id="live-game-date" type="date"></label>
+                <button id="refresh-live-games" class="quiet-button" type="button">Actualizar jornada</button>
+              </div>
+              <p id="live-picker-status" class="live-picker-status" role="status"></p>
+              <div id="live-game-list" class="live-game-list" role="group" aria-label="Juegos para seguir"></div>
+              <div class="replay-entry">
+                <button id="try-live-replay" class="quiet-button live-example" type="button">Ver una jugada de ejemplo</button>
+                <p>Repetición de un partido real. Puedes usarla aunque la jornada esté vacía.</p>
+              </div>
+            </section>
+            <section class="live-guide" aria-labelledby="live-guide-title">
+              <h2 id="live-guide-title">Cómo seguir el partido</h2>
+              <ol>
+                <li><strong>Abre un juego en curso.</strong> Revisa la entrada, los corredores y quién está lanzando.</li>
+                <li><strong>Comprueba la hora del dato.</strong> El porcentaje de victoria corresponde a la última jugada para la que MLB lo publicó.</li>
+                <li><strong>Elige un bateador.</strong> Lee los hits que ya lleva y calcula uno adicional según las apariciones que podría tener.</li>
+              </ol>
+              <details class="odds-guide">
+                <summary>Cómo leer la probabilidad frente a un momio</summary>
+                <p>Un momio decimal de 2.00 equivale a un umbral de equilibrio de 50%. Compara el mismo evento: un hit adicional desde este momento y un hit en todo el juego son resultados distintos.</p>
+              </details>
+            </section>
+          </div>
+        </details>
+
+      <section id="live-panel" class="live-board" aria-labelledby="live-title" hidden>
+        <div class="live-board-head">
+          <div>
+            <p id="live-mode" class="live-mode">En vivo</p>
+            <h2 id="live-title" tabindex="-1">Seguimiento del juego</h2>
+          </div>
+          <div class="live-board-actions">
+            <button id="live-refresh" class="quiet-button" type="button">Actualizar ahora</button>
+            <button id="live-pause" class="quiet-button" type="button">Pausar actualizaciones</button>
+            <button id="close-live-panel" class="quiet-button" type="button">Cerrar seguimiento</button>
+          </div>
+        </div>
+        <p id="live-status" class="live-board-status" role="status"></p>
+        <div id="live-replay-switch" class="live-replay-switch" role="group" aria-label="Momentos de la repetición" hidden></div>
+        <div id="live-content" class="live-content" hidden>
+          <div class="live-overview">
+            <section class="live-card live-score" aria-labelledby="live-score-title">
+              <h3 id="live-score-title">Marcador</h3>
+              <div class="live-score-grid">
+                <div id="live-away-team" class="live-score-team"></div>
+                <div id="live-home-team" class="live-score-team"></div>
+              </div>
+            </section>
+            <section id="live-situation" class="live-card live-situation" aria-labelledby="live-inning">
+              <h3 id="live-inning" class="live-inning"></h3>
+              <div class="live-at-bat">
+                <div class="live-base-state">
+                  <div class="live-field" aria-hidden="true">
+                    <div class="live-infield"></div><span id="live-base-1" class="live-base base-first"></span>
+                    <span id="live-base-2" class="live-base base-second"></span>
+                    <span id="live-base-3" class="live-base base-third"></span><span class="live-plate"></span>
+                  </div>
+                  <p id="live-bases-label" class="live-bases-label"></p>
+                </div>
+                <dl class="live-counts">
+                  <div><dt>Bolas</dt><dd id="live-balls">—</dd></div>
+                  <div><dt>Strikes</dt><dd id="live-strikes">—</dd></div>
+                  <div><dt>Outs</dt><dd id="live-outs">—</dd></div>
+                </dl>
+              </div>
+              <dl id="live-matchup" class="live-matchup">
+                <div><dt>Al bate</dt><dd id="live-batter">—</dd></div>
+                <div><dt>En el montículo</dt><dd id="live-pitcher">—</dd></div>
+              </dl>
+            </section>
+          </div>
+          <div class="live-telemetry">
+            <div class="live-play">
+              <h3>Última jugada</h3>
+              <p id="live-last-play"></p>
+              <details id="live-play-detail" class="live-play-detail" hidden>
+                <summary>Descripción original de MLB</summary>
+                <p id="live-play-description"></p>
+              </details>
+            </div>
+            <dl id="live-times" class="live-times"></dl>
+          </div>
+          <div class="live-probabilities">
+            <section id="live-win-panel" class="live-card live-win-panel" aria-labelledby="live-win-title">
+              <div class="live-card-heading">
+                <h3 id="live-win-title">Probabilidad de ganar</h3>
+                <span class="live-card-source">MLB</span>
+              </div>
+              <div id="live-win-grid" class="live-win-grid" hidden></div>
+              <div id="live-win-meter" class="live-win-meter" aria-hidden="true" hidden><span></span><span></span></div>
+              <p id="live-win-note" class="live-probability-note"></p>
+            </section>
+            <section id="live-hitter-panel" class="live-card live-hitter-panel" aria-labelledby="live-hitter-title">
+              <h3 id="live-hitter-title">Hits del bateador</h3>
+              <div class="live-hitter-controls">
+                <label for="live-player-select">Bateador<select id="live-player-select"></select></label>
+                <button id="live-estimate" class="quiet-button" type="button">Estimar hits</button>
+              </div>
+              <div class="live-recorded">
+                <p class="live-recorded-label">Ya en este juego · MLB</p>
+                <p id="live-player-totals" class="live-player-totals"></p>
+              </div>
+              <p id="live-estimate-status" class="live-board-status" role="status"></p>
+              <div id="live-estimate-result" class="live-estimate-result" hidden></div>
+            </section>
+          </div>
+        </div>
+      </section>
+      </div>
     </main>
 
     <dialog id="install-help" class="install-dialog" aria-labelledby="install-title">
@@ -581,7 +631,7 @@
     </dialog>
 
     <footer class="site-footer">
-      <span>DIAMOND IQ <i></i> BASEBALL ANALYZER 3.0</span>
+      <span>DIAMOND IQ <i></i> BASEBALL ANALYZER 3.1</span>
       <span>Construido con datos públicos de MLB Statcast</span>
     </footer>
   </body>
